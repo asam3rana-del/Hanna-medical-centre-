@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/models/misc_entities.dart';
-import 'package:hanna_installment/services/otp_login.dart';
-import 'package:hanna_installment/utils/password_hasher.dart';
+import 'package:ah_developer_kiryana_store/models/misc_entities.dart';
+import 'package:ah_developer_kiryana_store/services/otp_login.dart';
+import 'package:ah_developer_kiryana_store/utils/password_hasher.dart';
 
 User _u(String name, {String phone = '', bool active = true, String hash = 'x'}) => User(
       username: name,

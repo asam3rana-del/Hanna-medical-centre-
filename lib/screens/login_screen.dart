@@ -3,8 +3,6 @@ import 'dart:io' show Platform;
 import 'package:firebase_auth/firebase_auth.dart' show PhoneAuthCredential;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-
-import '../app_info.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../db/user_repository.dart';
@@ -16,8 +14,7 @@ import '../services/session.dart';
 import '../services/staff_auth.dart';
 import '../utils/loc.dart';
 import '../utils/password_hasher.dart';
-import '../installment/installment_home_screen.dart';
-import '../license/license_screen.dart';
+import 'dashboard_screen.dart';
 import '../theme/theme_manager.dart';
 
 /// Mirrors LoginActivity.kt (password + "none" login method + pehli dafa admin setup).
@@ -115,7 +112,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _goMain() {
     if (!mounted) return;
-    Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const LicenseGate(child: InstallmentHomeScreen())));
+    Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const DashboardScreen()));
   }
 
   /// Koi bhi exception aaye to `_busy` wapas false (pehle DB error par button hamesha disabled reh jata).
@@ -624,9 +621,9 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   CircleAvatar(radius: 40, backgroundColor: Colors.white, child: Icon(Icons.lock, size: 36, color: ThemeManager.palette.navyInk)),
                   const SizedBox(height: 16),
-                  Text(AppInfo.appName, style: const TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.bold)),
+                  const Text('Hanna Medical Store', style: TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
-                  Text(_setupMode ? Loc.t('First-time setup', 'پہلی دفعہ سیٹ اپ') : Loc.t('Installment sales record', 'قسط کا حساب'),
+                  Text(_setupMode ? Loc.t('First-time setup', 'پہلی دفعہ سیٹ اپ') : 'Point of Sale',
                       style: TextStyle(color: ThemeManager.palette.headerSubtitleColor)),
                   const SizedBox(height: 26),
                   Card(

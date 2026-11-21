@@ -1,11 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:hanna_installment/models/misc_entities.dart';
-import 'package:hanna_installment/sync/sync_apply.dart';
-import 'package:hanna_installment/sync/sync_pull_plan.dart';
-import 'package:hanna_installment/sync/sync_queue_dao.dart';
-import 'package:hanna_installment/sync/sync_types.dart';
+import 'package:ah_developer_kiryana_store/models/misc_entities.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_apply.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_pull_plan.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_queue_dao.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_types.dart';
 
 /// Phase 10: applyServerChanges HISSA 2 — sales, purchases, expenses, payments, cash_transactions, units,
 /// categories, zakat, returns, stock_movements, shell, app_settings, cash_register.
@@ -611,8 +611,8 @@ void main() {
     });
   });
 
-  test('branchScopedCollections: 31 (16 + Workers + Shop Rents + Utility Bills + Due Follow-ups + 8 Installment), users/shell nahi', () {
-    expect(branchScopedCollections.length, 38);
+  test('branchScopedCollections: 25 (16 + Workers + Shop Rents + Utility Bills + Due Follow-ups), users/shell nahi', () {
+    expect(branchScopedCollections.length, 25);
     expect(branchScopedCollections.contains('workers'), isTrue);
     expect(branchScopedCollections.contains('users'), isFalse);
     expect(branchScopedCollections.contains('shell_customers'), isFalse);

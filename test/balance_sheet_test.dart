@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/balance_sheet_repository.dart';
-import 'package:hanna_installment/models/product.dart';
+import 'package:ah_developer_kiryana_store/db/balance_sheet_repository.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
 
 BalanceSheetFigures sheet({
   double cashIn = 0,

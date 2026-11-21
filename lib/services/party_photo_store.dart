@@ -16,10 +16,6 @@ class PartyPhotoStore {
   /// Tasveer badalne par barhta hai — avatar widgets sun kar dobara banate hain.
   final ValueNotifier<int> changes = ValueNotifier<int>(0);
 
-  /// Hanna Installment: is device par tasveer li / hatai gayi (path null = hatai). Cloud sync isay sun kar upload
-  /// karta hai. Sync se aayi tasveer ([saveBytes] / [removeQuiet]) yeh NAHI bulati (dobara upload na ho).
-  static void Function(bool customer, int id, String? path)? onLocalChange;
-
   final Map<String, String> _index = {};
   Future<void>? _loading;
 
@@ -80,46 +76,10 @@ class PartyPhotoStore {
     await _deleteOld(customer, id, keep: dest.path);
     _index[_key(customer, id)] = dest.path;
     changes.value++;
-    onLocalChange?.call(customer, id, dest.path);
-    return dest.path;
-  }
-
-  /// Pehle se li hui tasveer ([srcPath], maslan form mein save se pehle) ko party ke naam se rakhta hai.
-  /// (Hanna Installment: naya customer banate waqt hi snap.)
-  Future<String?> saveFrom(String srcPath, {required bool customer, required int id}) async {
-    final src = File(srcPath);
-    if (!await src.exists()) return null;
-    await ensureLoaded();
-    final dir = await _dir();
-    final prefix = customer ? 'c' : 's';
-    final dest = File(p.join(dir.path, '${prefix}_${id}_${DateTime.now().millisecondsSinceEpoch}.jpg'));
-    await src.copy(dest.path);
-    await _deleteOld(customer, id, keep: dest.path);
-    _index[_key(customer, id)] = dest.path;
-    changes.value++;
-    onLocalChange?.call(customer, id, dest.path);
     return dest.path;
   }
 
   Future<void> remove({required bool customer, required int id}) async {
-    await removeQuiet(customer: customer, id: id);
-    onLocalChange?.call(customer, id, null);
-  }
-
-  /// Sync se aayi tasveer (bytes) — upload callback nahi bulata.
-  Future<void> saveBytes(List<int> bytes, {required bool customer, required int id}) async {
-    await ensureLoaded();
-    final dir = await _dir();
-    final prefix = customer ? 'c' : 's';
-    final dest = File(p.join(dir.path, '${prefix}_${id}_${DateTime.now().millisecondsSinceEpoch}.jpg'));
-    await dest.writeAsBytes(bytes, flush: true);
-    await _deleteOld(customer, id, keep: dest.path);
-    _index[_key(customer, id)] = dest.path;
-    changes.value++;
-  }
-
-  /// Hatao, magar upload callback ke baghair (doosre device ne hatai thi).
-  Future<void> removeQuiet({required bool customer, required int id}) async {
     await ensureLoaded();
     await _deleteOld(customer, id);
     _index.remove(_key(customer, id));

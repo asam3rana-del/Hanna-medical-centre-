@@ -1,11 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:hanna_installment/models/misc_entities.dart';
-import 'package:hanna_installment/sync/sync_apply.dart';
-import 'package:hanna_installment/sync/sync_pull_plan.dart';
-import 'package:hanna_installment/sync/sync_queue_dao.dart';
-import 'package:hanna_installment/sync/sync_types.dart';
+import 'package:ah_developer_kiryana_store/models/misc_entities.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_apply.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_pull_plan.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_queue_dao.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_types.dart';
 
 /// Phase 10: pull assemble + applyServerChanges hissa 1 (customers / suppliers / products / users).
 /// Hissa 2 (sales ... cashRegisters): test/sync_apply_rest_test.dart.
@@ -142,7 +142,7 @@ void main() {
       expect(r.serverTime, 300);
       expect(assemblePullResult({}, 200).serverTime, 200);
       expect(assemblePullResult({'sales': [{'updatedAt': 5}]}, 200).serverTime, 200);
-      expect(pullCollections.length, 42);
+      expect(pullCollections.length, 29);
     });
   });
 

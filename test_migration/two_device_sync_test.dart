@@ -5,13 +5,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:hanna_installment/models/misc_entities.dart';
-import 'package:hanna_installment/sync/sync_apply.dart';
-import 'package:hanna_installment/sync/sync_pull_plan.dart';
-import 'package:hanna_installment/sync/sync_push_plan.dart';
-import 'package:hanna_installment/sync/sync_queue_dao.dart';
-import 'package:hanna_installment/sync/sync_repository.dart';
-import 'package:hanna_installment/sync/sync_types.dart';
+import 'package:ah_developer_kiryana_store/models/misc_entities.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_apply.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_pull_plan.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_push_plan.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_queue_dao.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_repository.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_types.dart';
 
 /// Multi-device sync tests (improvement plan P1 #6): TWO phones, each with its own local database and its own
 /// sync checkpoint, talking to ONE in-memory "cloud". Everything except Firestore itself is the real code:

@@ -19,6 +19,7 @@ import 'cost_backfill.dart';
 import 'customer_repository.dart';
 import 'party_repository.dart' show PartyRepository, partyClosing;
 import 'product_repository.dart';
+import 'return_undo_repository.dart';
 import 'recycle_bin_repository.dart';
 import '../sync/device_tag.dart';
 import '../sync/sync_queue_helper.dart';
@@ -166,6 +167,24 @@ List<PayEntry> subtractLinkedPaid(List<PayEntry> rows, double linkedPaid) {
     out.add(PayEntry(row.method, amount));
   }
   return out;
+}
+
+/// Sale return ke baad receipt banane ke liye natija.
+class SaleReturnResult {
+  final String invoice;
+  final double returnedTotal;
+  final String customerName;
+  final double customerBalanceBefore;
+
+  /// Customer ka naya balance (musbat = us ne dena hai). Return se ye kam hota hai.
+  final double customerBalanceAfter;
+  const SaleReturnResult({
+    required this.invoice,
+    required this.returnedTotal,
+    required this.customerName,
+    required this.customerBalanceBefore,
+    required this.customerBalanceAfter,
+  });
 }
 
 class SaleRepository {
@@ -913,15 +932,85 @@ class SaleRepository {
   /// line (so it shows in Sale Returns reports), customer due reversed, a
   /// dated cash-OUT reversal, and status -> 'returned'. The original sale's
   /// cash history is kept. Mirrors `returnSale()` (HistoryActivity).
-  Future<void> returnSale(String invoice) async {
+  /// Purane FULL sale return ka undo JAB snapshot mojood NAHI (feature se pehle hua return). Bill status
+  /// 'returned' hona chahiye — tab items salamat hoti hain. Bill ke apne data se return ka asar ulta:
+  ///  * har item ka stock wapas kam,
+  ///  * customer ka baqaya (total - paid) phir se lag jata hai,
+  ///  * return ki cash reversal rows (`return:<invoice>`) hat jati hain,
+  ///  * `returns` rows hat jati hain, status 'active'.
+  /// NOTE: agar bill par alag se "Receive Payment" wale linked payments the jo return mein khatam hue, wo
+  /// khud wapas nahi aate — unka record dobara daalna parega (balance phir bhi theek rehta hai).
+  Future<bool> reconstructUndoFullReturn(String invoice) async {
+    _requireAdmin();
+    final db = await AppDatabase.instance.database;
+    var ok = false;
+    await db.transaction((txn) async {
+      final rows = await txn.query('sales', where: 'invoice=?', whereArgs: [invoice], limit: 1);
+      if (rows.isEmpty) return;
+      final sale = Sale.fromMap(rows.first);
+      if (sale.status != 'returned') return; // sirf full return ka reconstruct
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final itemRows = await txn.query('sale_items', where: 'invoice=?', whereArgs: [invoice]);
+      for (final r in itemRows) {
+        final si = SaleItem.fromMap(r);
+        final pr = await txn.query('products', where: 'barcode=?', whereArgs: [si.barcode], limit: 1);
+        final product = pr.isEmpty ? null : Product.fromMap(pr.first);
+        final smallest = saleItemSmallestQty(si, product);
+        if (smallest > 0) {
+          await txn.rawUpdate('UPDATE products SET stock = stock - ?, dirty = 1, updatedAt = ? WHERE barcode = ?',
+              [smallest, now, si.barcode]);
+          await SyncQueueHelper.enqueueStockDelta(txn, si.barcode, -smallest);
+          await StockLedger.log(txn,
+              barcode: si.barcode, type: MovementType.saleReversal, signedQty: -smallest, reference: invoice, now: now);
+        }
+      }
+      final outstanding = sale.total - sale.paid;
+      if (sale.customerId != null && outstanding.abs() > 0.009) {
+        await _adjustCustomerBalance(txn, sale.customerId!, outstanding, now);
+      }
+      // Return ki cash reversal rows (reference = return:<invoice>) hatao — cloud par bhi.
+      await SyncQueueHelper.deleteCashTransactionsByReference(txn, 'return:$invoice');
+      // `returns` rows hatao.
+      final retRows = await txn.query('returns', columns: ['id', 'serverId'], where: 'reference = ? AND type = ?', whereArgs: [invoice, 'sale']);
+      for (final rr in retRows) {
+        final sid = (rr['serverId'] as String?)?.trim();
+        await SyncQueueHelper.enqueueDelete(txn, 'return', sid != null && sid.isNotEmpty ? sid : '${rr['id']}');
+      }
+      await txn.delete('returns', where: 'reference = ? AND type = ?', whereArgs: [invoice, 'sale']);
+      await txn.update('sales', {'status': 'active', 'updatedAt': now, 'dirty': 1}, where: 'invoice=?', whereArgs: [invoice]);
+      await _enqueueSync(txn, 'sale', invoice, 'update',
+          {'invoice': invoice, 'customerId': sale.customerId, 'total': sale.total, 'paid': sale.paid, 'status': 'active'});
+      ok = true;
+    });
+    if (ok) {
+      await ProductRepository.instance.refresh();
+      await CustomerRepository.instance.refresh();
+      await _notify();
+      await _logAudit('sale_return_undo_reconstruct', invoice, '');
+    }
+    return ok;
+  }
+
+  Future<SaleReturnResult> returnSale(String invoice) async {
     _requireAdmin();
     final db = await AppDatabase.instance.database;
     Sale? returned;
+    int? customerId;
+    var balanceBefore = 0.0;
+    var returnedAmount = 0.0;
     await db.transaction((txn) async {
       final rows = await txn.query('sales', where: 'invoice=?', whereArgs: [invoice], limit: 1);
       if (rows.isEmpty) throw ArgumentError('Ye bill nahi mila');
       final sale = Sale.fromMap(rows.first);
       if (sale.status == 'returned') throw ArgumentError('Ye sale pehle hi return ho chuki hai');
+      customerId = sale.customerId;
+      returnedAmount = sale.total;
+      if (customerId != null) {
+        final cb = await txn.query('customers', columns: ['balance'], where: 'id=?', whereArgs: [customerId], limit: 1);
+        if (cb.isNotEmpty) balanceBefore = ((cb.first['balance'] as num?) ?? 0).toDouble();
+      }
+      // Undo ke liye: return se pehle poore bill ka snapshot.
+      final undoPre = await ReturnUndoRepository.capture(txn, type: 'sale', ref: invoice);
       final itemRows = await txn.query('sale_items', where: 'invoice=?', whereArgs: [invoice]);
       final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -979,6 +1068,7 @@ class SaleRepository {
         'paid': sale.paid,
         'status': 'returned',
       });
+      await ReturnUndoRepository.commit(txn, undoPre);
       returned = sale;
     });
 
@@ -989,6 +1079,28 @@ class SaleRepository {
     if (s != null) {
       await _logAudit('sale_return', invoice, 'total=${s.total} paid=${s.paid}');
     }
+    return _saleReturnResult(invoice, returnedAmount, customerId, balanceBefore);
+  }
+
+  /// Return ke baad customer ka naam + naya balance utha kar [SaleReturnResult] banao (receipt ke liye).
+  Future<SaleReturnResult> _saleReturnResult(String invoice, double returnedTotal, int? customerId, double balanceBefore) async {
+    final db = await AppDatabase.instance.database;
+    var name = '';
+    var balanceAfter = 0.0;
+    if (customerId != null) {
+      final cr = await db.query('customers', columns: ['name', 'balance'], where: 'id=?', whereArgs: [customerId], limit: 1);
+      if (cr.isNotEmpty) {
+        name = (cr.first['name'] as String?) ?? '';
+        balanceAfter = ((cr.first['balance'] as num?) ?? 0).toDouble();
+      }
+    }
+    return SaleReturnResult(
+      invoice: invoice,
+      returnedTotal: returnedTotal,
+      customerName: name,
+      customerBalanceBefore: balanceBefore,
+      customerBalanceAfter: balanceAfter,
+    );
   }
 
   /// Partial sale return (admin). [requested] = sale_items.id -> return qty. Mirrors the purchase side
@@ -996,7 +1108,7 @@ class SaleRepository {
   /// `returns` row banta hai, bill ka total/paid kam hota hai, customer ka balance sirf farq se badalta hai
   /// aur jo paisa ab bill se zyada reh gaya wo dated cash-OUT reversal se wapas hota hai. Sab lines ki poori
   /// qty ho to purani poori-bill [returnSale] chalti hai (status 'returned').
-  Future<void> returnSaleItems(String invoice, Map<int, double> requested) async {
+  Future<SaleReturnResult> returnSaleItems(String invoice, Map<int, double> requested) async {
     _requireAdmin();
     final db = await AppDatabase.instance.database;
 
@@ -1017,11 +1129,20 @@ class SaleRepository {
     }
 
     double returnedTotal = 0;
+    int? customerId;
+    var balanceBefore = 0.0;
     await db.transaction((txn) async {
       final rows = await txn.query('sales', where: 'invoice=?', whereArgs: [invoice], limit: 1);
       if (rows.isEmpty) throw ArgumentError('Ye bill nahi mila');
       final sale = Sale.fromMap(rows.first);
       if (sale.status == 'returned') throw ArgumentError('Ye sale pehle hi return ho chuki hai');
+      customerId = sale.customerId;
+      if (customerId != null) {
+        final cb = await txn.query('customers', columns: ['balance'], where: 'id=?', whereArgs: [customerId], limit: 1);
+        if (cb.isNotEmpty) balanceBefore = ((cb.first['balance'] as num?) ?? 0).toDouble();
+      }
+      // Undo ke liye: return se pehle poore bill ka snapshot.
+      final undoPre = await ReturnUndoRepository.capture(txn, type: 'sale', ref: invoice);
       final itemRows = await txn.query('sale_items', where: 'invoice=?', whereArgs: [invoice]);
       final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -1155,12 +1276,14 @@ class SaleRepository {
         'paid': newPaid,
         'itemCount': remainingCount,
       });
+      await ReturnUndoRepository.commit(txn, undoPre);
     });
 
     await ProductRepository.instance.refresh();
     await CustomerRepository.instance.refresh();
     await _notify();
     if (returnedTotal > 0) await _logAudit('sale_return_partial', invoice, 'returned=$returnedTotal');
+    return _saleReturnResult(invoice, returnedTotal, customerId, balanceBefore);
   }
 
   // --------------------------------------------------------- Customer's rate

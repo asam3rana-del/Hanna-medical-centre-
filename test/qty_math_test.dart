@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/utils/qty_math.dart';
+import 'package:ah_developer_kiryana_store/utils/qty_math.dart';
 
 void main() {
   test('float noise: 0.1 + 0.2 stock se 0.3 nikalna allowed hai', () {

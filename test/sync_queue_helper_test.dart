@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:hanna_installment/sync/device_tag.dart';
-import 'package:hanna_installment/sync/sync_queue_helper.dart';
+import 'package:ah_developer_kiryana_store/sync/device_tag.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_queue_helper.dart';
 
 /// Phase 10: SyncQueueHelper (Kotlin `SyncQueueHelper.kt`) — entity ids, Android-shape payloads,
 /// enqueue* (row + items DB se), balance/stock delta, delete tombstone, legacy adapter, repairs.

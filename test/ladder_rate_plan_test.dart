@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/models/product.dart';
-import 'package:hanna_installment/utils/ladder_rate_plan.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
+import 'package:ah_developer_kiryana_store/utils/ladder_rate_plan.dart';
 
 // Capstan: ctn = 50 outer, outer = 10 dabbi (1 ctn = 500 dabbi). Naya ladder: outer = 10 dabbi.
 Product _old({double cost = 118000, double sale = 125000, double bulkQty = 0}) => Product(

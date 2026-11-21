@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/utils/split_payment.dart';
+import 'package:ah_developer_kiryana_store/utils/split_payment.dart';
 
 void main() {
   group('cleanPayments / effectivePaidInput', () {

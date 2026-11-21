@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/cash_repository.dart';
-import 'package:hanna_installment/db/expense_repository.dart';
+import 'package:ah_developer_kiryana_store/db/cash_repository.dart';
+import 'package:ah_developer_kiryana_store/db/expense_repository.dart';
 
 void main() {
   test('Expense category list matches Kotlin (11 items, Misc last)', () {

@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/daily_bills_repository.dart';
-import 'package:hanna_installment/db/party_reports_repository.dart';
-import 'package:hanna_installment/db/rent_repository.dart';
+import 'package:ah_developer_kiryana_store/db/daily_bills_repository.dart';
+import 'package:ah_developer_kiryana_store/db/party_reports_repository.dart';
+import 'package:ah_developer_kiryana_store/db/rent_repository.dart';
 
 void main() {
   test('rent invoice: ek din + ek customer = ek hi invoice', () {

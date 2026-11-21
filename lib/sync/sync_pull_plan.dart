@@ -1,6 +1,5 @@
 import 'sync_push_plan.dart' show asMillis;
 import 'sync_types.dart';
-import '../installment/inst_sync_names.dart';
 
 /// SyncApi.pull ka SAAF hissa (Firestore ke baghair) — Kotlin `pull()` ke aakhri hisse.
 
@@ -56,8 +55,6 @@ const List<String> pullCollections = [
   'utility_bills',
   'utility_bill_payments',
   'due_followups',
-  // Hanna Installment (6)
-  ...instPullCollections,
 ];
 
 /// Har collection ke documents (`byCollection[collectionName]`) se `PullResult` banao.
@@ -105,7 +102,6 @@ PullResult assemblePullResult(Map<String, List<SyncDoc>> byCollection, int since
     utilityBills: of('utility_bills'),
     utilityBillPayments: of('utility_bill_payments'),
     dueFollowups: of('due_followups'),
-    installment: {for (final c in instPullCollections) c: of(c)},
     serverTime: maxUpdatedAt,
   );
 }
@@ -139,7 +135,6 @@ const List<String> branchScopedCollections = [
   'utility_bills',
   'utility_bill_payments',
   'due_followups',
-  ...instPullCollections,
 ];
 
 /// Firestore batch delete ka hissa (limit 500 se neeche) — Kotlin `.limit(400)`.

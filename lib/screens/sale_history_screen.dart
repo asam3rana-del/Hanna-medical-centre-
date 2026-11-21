@@ -1,0 +1,566 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:intl/intl.dart';
+
+import '../db/sale_history_repository.dart';
+import '../db/purchase_history_repository.dart' show ReturnableLine;
+import '../db/sale_repository.dart';
+import '../db/return_undo_repository.dart';
+import '../db/user_repository.dart';
+import '../utils/bill_text.dart';
+import '../models/sale.dart';
+import '../services/session.dart';
+import '../theme/theme_manager.dart';
+import '../utils/bill_doc.dart';
+import 'bill_preview_screen.dart';
+import '../utils/loc.dart';
+import '../widgets/return_qty_dialog.dart';
+import 'sale_screen.dart';
+
+/// Mirrors SaleHistoryActivity.kt.
+///
+/// Saare purane sales, customer ke hisaab se group. Summary cards (Total Sales / Total Returned),
+/// customer search, bill par tap = items expand, Print (dobara bill), Edit / Return / Delete.
+///
+/// Role: Kotlin mein sab dekh sakte hain. Flutter mein: profit sirf admin (data layer bhi check karta
+/// hai — cashier ke liye cost load hi nahi hota); Edit / Return / Delete sirf admin
+/// (SaleRepository dobara check karta hai).
+///
+/// Farq (Kotlin se): Material icons; Print = Bill Preview screen (Bluetooth print / WhatsApp / Copy).
+class SaleHistoryScreen extends StatefulWidget {
+  const SaleHistoryScreen({super.key});
+
+  @override
+  State<SaleHistoryScreen> createState() => _SaleHistoryScreenState();
+}
+
+class _SaleHistoryScreenState extends State<SaleHistoryScreen> with WidgetsBindingObserver {
+  final _repo = SaleHistoryRepository.instance;
+  final _search = TextEditingController();
+  final _dateFmt = DateFormat('dd MMM yyyy, hh:mm a');
+
+  bool _loading = true;
+  List<SaleWithCustomer> _all = const [];
+  Set<String> _undoable = const {};
+  List<SaleGroup> _groups = const [];
+  Map<String, double> _profits = const {};
+  Set<String> _pendingCost = const {};
+  SaleHistorySummary _summary = const SaleHistorySummary(0, 0);
+  String _query = '';
+
+  final Set<String> _expanded = {};
+  final Map<String, List<SaleItem>> _items = {};
+
+  AppPalette get _p => ThemeManager.palette;
+  bool get _admin => Session.isAdmin;
+  String _rs(double v) => 'Rs ${v.round()}';
+  String _qty(double v) => v == v.truncateToDouble() ? v.toInt().toString() : v.toString();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refresh();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _search.dispose();
+    super.dispose();
+  }
+
+  // Kotlin onResume: Sale screen se wapas aane par list taza.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refresh(showSpinner: false);
+  }
+
+  Future<void> _refresh({bool showSpinner = true}) async {
+    if (showSpinner) setState(() => _loading = true);
+    final all = await _repo.allSales();
+    final profits = await _repo.saleProfits();
+    final pendingCost = await _repo.pendingCostInvoices();
+    final undoable = await ReturnUndoRepository.instance.undoableRefs('sale');
+    if (!mounted) return;
+    setState(() {
+      _pendingCost = pendingCost;
+      _undoable = undoable;
+      _all = all;
+      _groups = groupSalesByCustomer(all);
+      _profits = profits;
+      _summary = summarizeSales(all);
+      _items.clear();
+      _expanded.removeWhere((inv) => !all.any((s) => s.invoice == inv));
+      _loading = false;
+    });
+    for (final inv in _expanded) {
+      _loadItems(inv);
+    }
+  }
+
+  Future<void> _loadItems(String invoice) async {
+    final items = await _repo.itemsForInvoice(invoice);
+    if (!mounted) return;
+    setState(() => _items[invoice] = items);
+  }
+
+  void _toggle(String invoice) {
+    setState(() {
+      if (!_expanded.add(invoice)) _expanded.remove(invoice);
+    });
+    if (_expanded.contains(invoice) && !_items.containsKey(invoice)) _loadItems(invoice);
+  }
+
+  void _toast(String m) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  }
+
+  // ------------------------------------------------------------------ actions
+
+  Future<void> _edit(SaleWithCustomer s) async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => SaleScreen(editInvoice: s.invoice)));
+    if (mounted) _refresh(showSpinner: false);
+  }
+
+  Future<bool> _confirm(String title, String message, String action) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(Loc.t('Cancel', 'منسوخ'))),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(action)),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
+  /// Galti se return ho jaye to wapas pehli halat par. [reconstructFallback] = purana full return (snapshot nahi).
+  Future<void> _undoReturn(String invoice, bool reconstructFallback) async {
+    final hasSnap = await ReturnUndoRepository.instance.hasUndo(invoice, 'sale');
+    if (!mounted) return;
+    final old = !hasSnap && reconstructFallback;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(Loc.t('Undo return?', 'واپسی منسوخ کریں؟')),
+        content: Text(old
+            ? Loc.t(
+                'This return was done before the undo feature. The bill will be restored: stock back, customer balance re-applied, status Active. If this bill had a separate linked payment, re-enter that payment afterwards. Continue?',
+                'یہ واپسی undo فیچر سے پہلے ہوئی۔ بل بحال ہو جائے گا: اسٹاک واپس، گاہک بیلنس دوبارہ، اسٹیٹس ایکٹو۔ اگر اس بل پر الگ لنک شدہ ادائیگی تھی تو وہ بعد میں دوبارہ درج کریں۔ جاری رکھیں؟')
+            : Loc.t(
+                'This puts the bill back exactly as it was before the return: stock, customer balance, payments and status all restored. Continue?',
+                'یہ بل کو بالکل ویسا ہی واپس کر دے گا جیسا واپسی سے پہلے تھا: اسٹاک، گاہک بیلنس، ادائیگیاں اور اسٹیٹس سب بحال۔ جاری رکھیں؟')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(Loc.t('Cancel', 'منسوخ'))),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(Loc.t('Undo return', 'واپسی منسوخ'))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      final done = hasSnap
+          ? await ReturnUndoRepository.instance.undo(invoice, 'sale')
+          : await SaleRepository.instance.reconstructUndoFullReturn(invoice);
+      _toast(done ? Loc.t('Return undone', 'واپسی منسوخ ہو گئی') : Loc.t('Undo not possible for this return', 'اس واپسی کی منسوخی ممکن نہیں'));
+    } catch (e) {
+      _toast('$e');
+    }
+    if (mounted) _refresh(showSpinner: false);
+  }
+
+  Future<void> _return(SaleWithCustomer s) async {
+    final items = await _repo.itemsForInvoice(s.invoice);
+    if (items.isEmpty || !mounted) return;
+    final lines = [
+      for (final i in items)
+        if (i.id != null) ReturnableLine(itemId: i.id!, name: i.product, unit: i.unit, qty: i.qty),
+    ];
+    if (lines.isEmpty) return;
+    final requested = await showDialog<Map<int, double>>(
+      context: context,
+      builder: (ctx) => ReturnQtyDialog(
+        lines: lines,
+        palette: _p,
+        description: 'Enter how many units of each item the customer is returning. Stock and customer balance will be adjusted only for those quantities. Returning every item in full returns the whole sale.',
+        descriptionUr: 'ہر آئٹم کی کتنی مقدار گاہک واپس کر رہا ہے درج کریں۔ صرف انہی مقداروں کے مطابق اسٹاک اور گاہک کا بیلنس ایڈجسٹ ہو گا۔ تمام آئٹمز پوری واپس ہوں تو پوری سیل واپس ہو جاتی ہے۔',
+        qtyLabel: 'Sold',
+        qtyLabelUr: 'بیچی گئی مقدار',
+      ),
+    );
+    if (requested == null) return;
+    // Receipt ke liye returned lines (naam / qty / rate) yahin se le lo (return ke baad bill badal jata hai).
+    final byId = {for (final i in items) i.id ?? -1: i};
+    final returnedLines = <({String name, double qty, String unit, double rate, double amount})>[];
+    requested.forEach((id, qty) {
+      if (qty <= 0) return;
+      final i = byId[id];
+      if (i != null) returnedLines.add((name: i.product, qty: qty, unit: i.unit, rate: i.unitPrice, amount: qty * i.unitPrice));
+    });
+    try {
+      final res = await SaleRepository.instance.returnSaleItems(s.invoice, requested);
+      _toast(Loc.t('Items returned', 'آئٹمز واپس ہو گئے'));
+      if (mounted) await _showReturnReceipt(res, returnedLines, s.customerName);
+    } catch (e) {
+      _toast('$e');
+    }
+    if (mounted) _refresh(showSpinner: false);
+  }
+
+  /// Sale return ki receipt: customer ko dikhane ke liye ke maal wapas hua aur uska balance kam hua.
+  Future<void> _showReturnReceipt(
+    SaleReturnResult res,
+    List<({String name, double qty, String unit, double rate, double amount})> lines,
+    String customerName,
+  ) async {
+    final repo = UserRepository.instance;
+    final text = buildSaleReturnText(
+      shopName: (await repo.getSetting('shop_name')) ?? '',
+      shopOwner: (await repo.getSetting('shop_owner')) ?? '',
+      shopPhone: (await repo.getSetting('shop_phone')) ?? '',
+      invoice: res.invoice,
+      date: DateTime.now(),
+      customer: res.customerName.isEmpty ? customerName : res.customerName,
+      lines: lines,
+      returnedTotal: res.returnedTotal,
+      balanceBefore: res.customerBalanceBefore,
+      balanceAfter: res.customerBalanceAfter,
+    );
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(Loc.t('Return receipt', 'واپسی کی رسید')),
+        content: SingleChildScrollView(
+          child: Container(
+            width: double.maxFinite,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(color: _p.bg, borderRadius: BorderRadius.circular(8)),
+            child: Text(text, style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
+          ),
+        ),
+        actions: [
+          TextButton.icon(
+            icon: const Icon(Icons.copy, size: 18),
+            label: Text(Loc.t('Copy', 'کاپی')),
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: text));
+              if (ctx.mounted) Navigator.pop(ctx);
+              _toast(Loc.t('Receipt copied', 'رسید کاپی ہو گئی'));
+            },
+          ),
+          FilledButton.icon(
+            icon: const Icon(Icons.share, size: 18),
+            label: Text(Loc.t('Share', 'شیئر')),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await Share.share(text);
+              } catch (_) {
+                await Clipboard.setData(ClipboardData(text: text));
+                _toast(Loc.t('Receipt copied', 'رسید کاپی ہو گئی'));
+              }
+            },
+          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(Loc.t('Close', 'بند کریں'))),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _delete(SaleWithCustomer s) async {
+    final ok = await _confirm(
+      Loc.t('Delete sale', 'سیل حذف کریں'),
+      Loc.t("Delete this sale? This will reverse its stock and customer balance changes. This can't be undone.",
+          'یہ سیل حذف کریں؟ اسٹاک اور گاہک کا بقایا الٹ جائے گا۔ یہ واپس نہیں ہو سکتا۔'),
+      Loc.t('Delete', 'حذف'),
+    );
+    if (!ok) return;
+    try {
+      await SaleRepository.instance.deleteSale(s.invoice);
+      _expanded.remove(s.invoice);
+      _toast(Loc.t('Sale deleted', 'سیل حذف ہو گئی'));
+    } catch (e) {
+      _toast('$e');
+    }
+    if (mounted) _refresh(showSpinner: false);
+  }
+
+  /// Kotlin printSale(): DB se poora Sale + items utha kar dobara bill (Bill Preview).
+  Future<void> _print(SaleWithCustomer s) async {
+    final sale = await _repo.findSale(s.invoice);
+    if (sale == null) return;
+    final items = _items[s.invoice] ?? await _repo.itemsForInvoice(s.invoice);
+    if (!mounted) return;
+    await BillPreviewScreen.open(
+      context,
+      BillDoc(
+        isPurchase: false,
+        ref: sale.invoice,
+        date: DateTime.fromMillisecondsSinceEpoch(sale.createdAt),
+        partyName: s.customerName,
+        items: [
+          for (final i in items) BillItem(name: i.product, qty: i.qty, unit: i.unit, rate: i.unitPrice, amount: i.amount),
+        ],
+        subtotal: sale.subtotal,
+        discount: sale.discount,
+        total: sale.total,
+        paid: sale.paid,
+        paymentMethod: _methodLabel(sale.paymentMethod),
+      ),
+    );
+  }
+
+  String _methodLabel(String m) => m.isEmpty ? '' : m[0].toUpperCase() + m.substring(1);
+
+  // ---------------------------------------------------------------------- UI
+
+  @override
+  Widget build(BuildContext context) {
+    final groups = filterGroups(_groups, _query);
+    return Scaffold(
+      backgroundColor: _p.bg,
+      appBar: AppBar(
+        backgroundColor: _p.navy,
+        foregroundColor: Colors.white,
+        title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(Loc.t('Sale History', 'سیل ہسٹری'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          Text(Loc.t('All past sales, grouped by customer', 'تمام پرانی سیلز، گاہک کے حساب سے'),
+              style: TextStyle(fontSize: 11.5, color: _p.headerSubtitleColor)),
+        ]),
+        actions: [
+          TextButton.icon(
+            onPressed: () async {
+              await Navigator.push(context, MaterialPageRoute(builder: (_) => const SaleScreen()));
+              if (mounted) _refresh(showSpinner: false);
+            },
+            icon: const Icon(Icons.add, size: 16, color: Colors.white),
+            label: Text(Loc.t('New', 'نیا'), style: const TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: _refresh,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(14, 14, 14, 28),
+                children: [
+                  Row(children: [
+                    Expanded(child: _summaryCard('↓', Loc.t('Total Sales', 'کل سیل'), _summary.totalSales, _p.teal)),
+                    const SizedBox(width: 10),
+                    Expanded(child: _summaryCard('↑', Loc.t('Total Returned', 'کل واپسی'), _summary.totalReturned, _p.red)),
+                  ]),
+                  const SizedBox(height: 14),
+                  _searchBox(),
+                  const SizedBox(height: 6),
+                  if (_all.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 20, left: 4),
+                      child: Text(Loc.t('No sales yet.', 'ابھی کوئی سیل نہیں۔'), style: TextStyle(fontSize: 14, color: _p.textMuted)),
+                    ),
+                  for (final g in groups) ..._groupWidgets(g),
+                ],
+              ),
+            ),
+    );
+  }
+
+  Widget _summaryCard(String arrow, String label, double value, Color accent) => Container(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        decoration: BoxDecoration(
+          color: _p.cardWhite,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _p.border),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Text(arrow, style: TextStyle(color: accent, fontWeight: FontWeight.bold, fontSize: 14)),
+            const SizedBox(width: 6),
+            Flexible(child: Text(label, style: TextStyle(color: _p.textMuted, fontSize: 12.5))),
+          ]),
+          const SizedBox(height: 6),
+          Text(_rs(value), style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: _p.textDark)),
+        ]),
+      );
+
+  Widget _searchBox() => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        decoration: BoxDecoration(
+          color: _p.cardWhite,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: _p.border),
+        ),
+        child: Row(children: [
+          Icon(Icons.search, size: 18, color: _p.navy),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: _search,
+              onChanged: (v) => setState(() => _query = v),
+              style: TextStyle(fontSize: 13.5, color: _p.textDark),
+              decoration: InputDecoration(
+                hintText: Loc.t('Search customer', 'گاہک تلاش کریں'),
+                hintStyle: TextStyle(color: _p.textMuted),
+                border: InputBorder.none,
+              ),
+            ),
+          ),
+        ]),
+      );
+
+  List<Widget> _groupWidgets(SaleGroup g) => [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 18, 4, 8),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Expanded(
+                child: Text(g.customerName, style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: _p.textDark)),
+              ),
+              Text('${g.activeCount} ${Loc.t('sales', 'سیلز')} · ${_rs(g.total)}', style: TextStyle(fontSize: 12, color: _p.textMuted)),
+            ]),
+            if (_admin)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                    '${Loc.t('Profit', 'منافع')}${g.sales.any((x) => _pendingCost.contains(x.invoice)) ? ' ${Loc.t('(est.)', '(اندازہ)')}' : ''}: ${_rs(g.profit(_profits))}',
+                    style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: _p.teal)),
+              ),
+          ]),
+        ),
+        for (final s in g.sales) ..._saleWidgets(s),
+      ];
+
+  List<Widget> _saleWidgets(SaleWithCustomer s) {
+    final profit = _profits[s.invoice];
+    Widget icon(IconData i, Color c, VoidCallback onTap) => InkWell(
+          onTap: onTap,
+          child: Padding(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4), child: Icon(i, size: 18, color: c)),
+        );
+    final items = _items[s.invoice];
+    return [
+      // Invoice number jaan-boojh kar nahi dikhta — date hi pehchaan hai (Kotlin).
+      Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        decoration: BoxDecoration(
+          color: _p.cardWhite,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: _p.border),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => _toggle(s.invoice),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
+            child: Row(children: [
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(_dateFmt.format(DateTime.fromMillisecondsSinceEpoch(s.createdAt)),
+                      style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: _p.textDark)),
+                  Text(s.isReturned ? Loc.t('Returned', 'واپس') : _methodLabel(s.paymentMethod),
+                      style: TextStyle(fontSize: 11, color: _p.textMuted)),
+                  if (!s.isReturned && s.partialReturned > 0)
+                    Text(
+                        '${Loc.t('Returned', 'واپس')} ${_rs(s.partialReturned)} · ${Loc.t('Net', 'نیٹ')} ${_rs(s.total)}',
+                        style: TextStyle(fontSize: 10.5, color: _p.red, fontWeight: FontWeight.w600)),
+                ]),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                  Text(_rs(s.total),
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: s.isReturned ? _p.red : _p.teal)),
+                  if (_admin && profit != null)
+                    Text(
+                        '${Loc.t('Profit', 'منافع')}${_pendingCost.contains(s.invoice) ? ' ${Loc.t('(est. - cost pending)', '(اندازہ - لاگت باقی)')}' : ''}: ${_rs(profit)}',
+                        style: TextStyle(fontSize: 10.5, color: _pendingCost.contains(s.invoice) ? Colors.orange.shade800 : _p.textMuted)),
+                ]),
+              ),
+              icon(Icons.print_outlined, _p.navy, () => _print(s)),
+              if (_admin && !s.isReturned) icon(Icons.edit_outlined, _p.teal, () => _edit(s)),
+              if (_admin && !s.isReturned) icon(Icons.undo, _p.teal, () => _return(s)),
+              if (_admin && (_undoable.contains(s.invoice) || s.isReturned))
+                icon(Icons.restore, _p.amber, () => _undoReturn(s.invoice, s.isReturned)),
+              if (_admin) icon(Icons.delete_outline, _p.red, () => _delete(s)),
+            ]),
+          ),
+        ),
+      ),
+      if (_expanded.contains(s.invoice) && items != null)
+        if (items.isEmpty)
+          _itemLine(Loc.t('No items on this sale.', 'اس سیل میں کوئی آئٹم نہیں۔'), muted: true)
+        else
+          _itemsPanel(s, items),
+    ];
+  }
+
+  /// Bill ki tafseel: har item do lines mein (naam alag, neeche "qty unit × rate"), amount saaf daayen taraf,
+  /// aur neeche hisaab (items ka jod, discount, total, paid, baqi). Naam alag line mein hone se Urdu / English
+  /// naam qty aur unit ke beech nahi ghusta.
+  Widget _itemsPanel(SaleWithCustomer s, List<SaleItem> items) {
+    final itemsTotal = items.fold<double>(0.0, (a, i) => a + i.amount);
+    final discount = itemsTotal - s.total;
+    final due = s.total - s.paid;
+    Widget sumRow(String label, String value, {bool bold = false, Color? color}) => Padding(
+          padding: const EdgeInsets.only(top: 3),
+          child: Row(children: [
+            Expanded(
+                child: Text(label,
+                    style: TextStyle(fontSize: 12.5, fontWeight: bold ? FontWeight.bold : FontWeight.normal, color: color ?? _p.textMuted))),
+            Text(value,
+                style: TextStyle(fontSize: bold ? 14 : 12.5, fontWeight: bold ? FontWeight.bold : FontWeight.w600, color: color ?? _p.textDark)),
+          ]),
+        );
+    return Container(
+      margin: const EdgeInsets.fromLTRB(8, 0, 0, 12),
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
+      decoration: BoxDecoration(
+        color: _p.fieldFill,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _p.border),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        for (var i = 0; i < items.length; i++) ...[
+          if (i > 0) Divider(height: 1, thickness: 1, color: _p.border),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              SizedBox(
+                width: 24,
+                child: Text('${i + 1}.', style: TextStyle(fontSize: 12, color: _p.textMuted)),
+              ),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(items[i].product,
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: _p.textDark)),
+                  const SizedBox(height: 2),
+                  Text('${_qty(items[i].qty)} ${items[i].unit}  ×  Rs ${_qty(items[i].unitPrice)}',
+                      style: TextStyle(fontSize: 12.5, color: _p.textMuted)),
+                ]),
+              ),
+              const SizedBox(width: 8),
+              Text(_rs(items[i].amount), style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: _p.textDark)),
+            ]),
+          ),
+        ],
+        Divider(height: 8, thickness: 1.5, color: _p.border),
+        sumRow('${Loc.t('Items', 'آئٹمز')}: ${items.length}', _rs(itemsTotal)),
+        if (discount > 0.5) sumRow(Loc.t('Discount', 'رعایت'), '- ${_rs(discount)}'),
+        sumRow(Loc.t('Total', 'کل'), _rs(s.total), bold: true, color: s.isReturned ? _p.red : _p.teal),
+        if (!s.isReturned && s.partialReturned > 0.009) sumRow(Loc.t('Returned', 'واپس'), '- ${_rs(s.partialReturned)}', color: _p.red),
+        if (!s.isReturned && s.paid > 0.009) sumRow(Loc.t('Paid', 'ادا شدہ'), _rs(s.paid)),
+        if (!s.isReturned && due > 0.5) sumRow(Loc.t('Due', 'باقی'), _rs(due), bold: true, color: _p.red),
+      ]),
+    );
+  }
+
+  Widget _itemLine(String text, {bool muted = false}) => Padding(
+        padding: const EdgeInsets.fromLTRB(14, 4, 4, 6),
+        child: Text(text, style: TextStyle(fontSize: 12, color: muted ? _p.textMuted : _p.textDark)),
+      );
+}

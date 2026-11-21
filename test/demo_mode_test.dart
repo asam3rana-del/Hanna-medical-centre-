@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:hanna_installment/db/app_database.dart';
-import 'package:hanna_installment/db/dashboard_repository.dart' show syncPendingMessage;
-import 'package:hanna_installment/services/demo_mode.dart';
+import 'package:ah_developer_kiryana_store/db/app_database.dart';
+import 'package:ah_developer_kiryana_store/db/dashboard_repository.dart' show syncPendingMessage;
+import 'package:ah_developer_kiryana_store/services/demo_mode.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

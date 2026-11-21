@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/theme/theme_manager.dart';
-import 'package:hanna_installment/widgets/menu_row.dart';
-import 'package:hanna_installment/widgets/numeric_keypad.dart';
+import 'package:ah_developer_kiryana_store/theme/theme_manager.dart';
+import 'package:ah_developer_kiryana_store/widgets/menu_row.dart';
+import 'package:ah_developer_kiryana_store/widgets/numeric_keypad.dart';
 
 void main() {
   test('lightenColor moves toward white like Kotlin lightenHex(0.82)', () {

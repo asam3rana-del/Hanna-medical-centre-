@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/sync/sync_repository.dart';
-import 'package:hanna_installment/sync/sync_worker.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_repository.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_worker.dart';
 
 /// Phase 10: SyncWorker — Kotlin `doWork` / `syncNowOnce` (REPLACE) / `triggerNow` (KEEP) /
 /// `schedulePeriodic` (KEEP) ka rawaiyya.

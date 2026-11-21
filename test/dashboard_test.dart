@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/dashboard_repository.dart';
-import 'package:hanna_installment/db/party_dashboard_repository.dart';
-import 'package:hanna_installment/models/misc_entities.dart';
-import 'package:hanna_installment/models/product.dart';
+import 'package:ah_developer_kiryana_store/db/dashboard_repository.dart';
+import 'package:ah_developer_kiryana_store/db/party_dashboard_repository.dart';
+import 'package:ah_developer_kiryana_store/models/misc_entities.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
 
 Product prod(String name, {String tag = ''}) => Product(barcode: name, name: name, searchTag: tag, salePrice: 10);
 

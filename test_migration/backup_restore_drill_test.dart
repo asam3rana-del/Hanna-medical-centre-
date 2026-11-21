@@ -6,9 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:hanna_installment/backup/backup_helper.dart';
-import 'package:hanna_installment/backup/backup_password_store.dart';
-import 'package:hanna_installment/db/app_database.dart';
+import 'package:ah_developer_kiryana_store/backup/backup_helper.dart';
+import 'package:ah_developer_kiryana_store/backup/backup_password_store.dart';
+import 'package:ah_developer_kiryana_store/db/app_database.dart';
 
 /// Backup / restore drill (improvement plan, P1 #7). NOT YET RUN - lives outside test/ so a failure cannot
 /// block release builds.

@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/models/product.dart';
-import 'package:hanna_installment/utils/expiry.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
+import 'package:ah_developer_kiryana_store/utils/expiry.dart';
 
 void main() {
   final now = DateTime(2026, 11, 12, 20, 0);

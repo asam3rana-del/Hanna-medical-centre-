@@ -1,5 +1,5 @@
-name: hanna_installment
-description: "Hanna Installment — qist (installment) software for shops (Android + Windows + iOS), built on the Hanna POS codebase."
+name: ah_developer_kiryana_store
+description: "AH Developer Kiryana Store — cross-platform POS (Android + iPad/iOS), ported from the IBTISAAM Kiryana Store Kotlin app."
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -57,7 +57,6 @@ dependencies:
   permission_handler: ^11.3.1              # Android 12+ Bluetooth permission
   image_picker: ^1.1.2                     # Bill Scan: camera / gallery
   google_mlkit_text_recognition: ^0.14.0   # Bill Scan: on-device OCR
-  mobile_scanner: ^7.2.0                   # Scan se sale: live barcode / QR (Android CameraX + ML Kit, iOS). Windows par nahi
 
   # Phase 6 — Parties: contact picker (Kotlin PartyActivity.openContactPicker)
   flutter_contacts: ^1.1.9+2               # phone field ka contact picker

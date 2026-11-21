@@ -1,14 +1,14 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/party_transaction_repository.dart' show purchaseItemSmallestQty;
-import 'package:hanna_installment/db/purchase_history_repository.dart' show partialSmallestQty;
-import 'package:hanna_installment/db/purchase_repository.dart';
-import 'package:hanna_installment/models/product.dart';
-import 'package:hanna_installment/models/purchase.dart';
-import 'package:hanna_installment/services/purchase_hold_recall.dart';
-import 'package:hanna_installment/utils/purchase_calc.dart';
-import 'package:hanna_installment/utils/split_payment.dart';
-import 'package:hanna_installment/utils/stock_touch_policy.dart';
+import 'package:ah_developer_kiryana_store/db/party_transaction_repository.dart' show purchaseItemSmallestQty;
+import 'package:ah_developer_kiryana_store/db/purchase_history_repository.dart' show partialSmallestQty;
+import 'package:ah_developer_kiryana_store/db/purchase_repository.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
+import 'package:ah_developer_kiryana_store/models/purchase.dart';
+import 'package:ah_developer_kiryana_store/services/purchase_hold_recall.dart';
+import 'package:ah_developer_kiryana_store/utils/purchase_calc.dart';
+import 'package:ah_developer_kiryana_store/utils/split_payment.dart';
+import 'package:ah_developer_kiryana_store/utils/stock_touch_policy.dart';
 
 // 1 Carton = 4 Dozen = 48 Pcs.
 const _juice = Product(

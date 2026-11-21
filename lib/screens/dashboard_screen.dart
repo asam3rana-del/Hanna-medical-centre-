@@ -1,0 +1,1030 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
+import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../models/due_followup.dart';
+import '../db/dashboard_repository.dart';
+import '../db/due_followup_repository.dart';
+import '../db/party_dashboard_repository.dart';
+import '../models/misc_entities.dart';
+import '../models/product.dart';
+import '../services/biometric.dart';
+import '../services/crash_handler.dart';
+import '../services/crash_reporter.dart';
+import '../services/permissions.dart';
+import '../services/session.dart';
+import '../sync/settings_sync.dart';
+import '../theme/theme_manager.dart';
+import '../utils/loc.dart';
+import '../widgets/menu_row.dart' show IconBadge;
+import '../widgets/party_quick_add_menu.dart' show showPartyPickerForPayment;
+import '../widgets/role_guard.dart';
+import '../widgets/todays_collection_card.dart';
+import 'amanat_loan_screen.dart';
+import 'backup_export_screen.dart';
+import 'daily_bills_screen.dart';
+import 'day_book_screen.dart';
+import 'collection_hub_screen.dart';
+import '../db/collection_autopilot_repository.dart';
+import '../services/collection_actions.dart';
+import 'item_search_screen.dart';
+import 'items_screen.dart';
+import 'login_screen.dart';
+import 'party_dashboard_screen.dart';
+import 'party_transaction_screen.dart';
+import 'purchase_screen.dart';
+import 'sale_screen.dart';
+import 'medicine_screen.dart';
+import 'settings_screen.dart';
+import 'stock_report_screen.dart';
+
+/// Ek dashboard card. [open] aur [onTap] dono null => abhi port nahi hua ("Coming soon").
+class _Action {
+  final String en, ur, subEn, subUr;
+  final IconData icon;
+  final Color bg, fg;
+  final Widget Function()? open;
+  final VoidCallback? onTap;
+
+  /// > 0 => icon ke saath chhota laal number (jaise overdue parties ki ginti).
+  final int badge;
+  const _Action(this.en, this.ur, this.subEn, this.subUr, this.icon, this.bg, this.fg,
+      {this.open, this.onTap, this.badge = 0});
+}
+
+/// Mirrors MainActivity.kt — header (Settings / dark toggle / Quick Switch), live item-rate search,
+/// Customer/Supplier search, QUICK ACTIONS grid, DUES SUMMARY (You'll get / give).
+///
+/// Data + faislay `lib/db/dashboard_repository.dart` mein hain (pure functions, test/dashboard_test.dart).
+/// Kotlin Dashboard par sirf quick actions hain; baqi screens (Reports, Products, Zakat ...) Kotlin mein
+/// Settings/Reports ke andar hain — Flutter mein bhi wahin (SettingsScreen link rows + ReportsScreen hub).
+class DashboardScreen extends StatefulWidget {
+  const DashboardScreen({super.key});
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  static const _am = {'admin', 'manager'};
+  static const _admin = {'admin'};
+
+  // Kotlin: get/give green & red semantic hain — theme badalne par bhi wahi rehte hain.
+  static const _partyGreen = Color(0xFF1B8A4A);
+  static const _partyGreenBg = Color(0xFFEAF3DE);
+  static const _partyRed = Color(0xFFD32F4A);
+  static const _partyRedBg = Color(0xFFFCEBEB);
+
+  static const _defaultShopName = 'Hanna Medical Store';
+
+  AppPalette get _p => ThemeManager.palette;
+
+  final _searchCtrl = TextEditingController();
+  List<Product>? _products; // cache; doosri screen se wapas aane par reset
+  List<Product> _matches = const [];
+  String _query = '';
+
+  // Party (Customer + Supplier) nateeje — ab wahi ek search bar (_searchCtrl) chalata hai.
+  List<PartyRow>? _parties; // cache; doosri screen se wapas aane par reset
+  List<PartyRow> _partyMatches = const [];
+  bool _showCustomers = true;
+  bool _showSuppliers = true;
+
+  double _toGet = 0;
+  double _toGive = 0;
+  int _autopilotTodo = 0; // Wasooli Autopilot: aaj yaad dilana baqi
+  CollectionFocus? _focus; // "Aaj ki Wasooli" card (sirf jin ke paas due_reminders access hai)
+  int _pending = 0;
+  String _shopName = '';
+  bool _syncing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkLastCrash());
+  }
+
+  /// Kotlin `showCrashDialog`: pichli baar crash hui ho to log dikhao (Share / Copy / Dismiss).
+  Future<void> _checkLastCrash() async {
+    final text = await CrashHandler.getLastCrash();
+    if (text == null || !mounted) return;
+    // Cloud Sync juda ho to developer ko khud (Firestore crash_reports) — dialog ka intezar kiye baghair.
+    CrashReporter.uploadIfNew(text).ignore();
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: Text(Loc.t('App crashed last time', 'پچھلی بار ایپ کریش ہوئی تھی')),
+        content: SingleChildScrollView(
+          child: SelectableText(CrashHandler.preview(text), style: const TextStyle(fontSize: 12)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              try {
+                await launchUrl(CrashReporter.whatsAppUri(text), mode: LaunchMode.externalApplication);
+              } catch (_) {}
+              await CrashHandler.clearLastCrash();
+              if (ctx.mounted) Navigator.of(ctx).pop();
+            },
+            child: Text(Loc.t('Send to developer', 'ڈیولپر کو بھیجیں')),
+          ),
+          TextButton(
+            onPressed: () async {
+              await Share.share(text, subject: 'IBTISAAM POS Crash Log');
+              await CrashHandler.clearLastCrash();
+              if (ctx.mounted) Navigator.of(ctx).pop();
+            },
+            child: Text(Loc.t('Share', 'شیئر کریں')),
+          ),
+          TextButton(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: text));
+              if (ctx.mounted) {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(content: Text(Loc.t('Copied', 'کاپی ہو گیا'))),
+                );
+              }
+            },
+            child: Text(Loc.t('Copy', 'کاپی')),
+          ),
+          TextButton(
+            onPressed: () async {
+              await CrashHandler.clearLastCrash();
+              if (ctx.mounted) Navigator.of(ctx).pop();
+            },
+            child: Text(Loc.t('Dismiss', 'برخاست کریں')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  // ------------------------------------------------------------------ data
+
+  /// Kotlin onResume: loadDashboard + loadShopName + loadPartySummary + sync pending.
+  /// Har hissa alag try mein — ek fail ho to baqi numbers phir bhi dikhen.
+  Future<void> _refresh() async {
+    final repo = DashboardRepository.instance;
+    String? error;
+
+    ({double toGet, double toGive})? party;
+    int? pending;
+    String? shop;
+    CollectionFocus? focus;
+    int autopilotTodo = 0;
+    // Wasooli card ka masla baqi dashboard ko na rokay: alag try, error toast nahi.
+    try {
+      if (Permissions.can('due_reminders')) focus = await DueFollowUpRepository.instance.todaysFocus();
+    } catch (_) {}
+    try {
+      if (Permissions.can('due_reminders')) {
+        autopilotTodo = (await CollectionAutopilotRepository.instance.today()).queue.todo.length;
+      }
+    } catch (_) {}
+    try {
+      party = await repo.partyTotalsNow();
+    } catch (e) {
+      error ??= e.toString();
+    }
+    try {
+      pending = await repo.pendingSyncCount();
+    } catch (e) {
+      error ??= e.toString();
+    }
+    try {
+      shop = await repo.shopName();
+    } catch (e) {
+      error ??= e.toString();
+    }
+    if (!mounted) return;
+    setState(() {
+      if (party != null) {
+        _toGet = party.toGet;
+        _toGive = party.toGive;
+      }
+      if (pending != null) _pending = pending;
+      if (shop != null) _shopName = shop;
+      _focus = focus;
+      _autopilotTodo = autopilotTodo;
+    });
+    if (error != null) _toast(error);
+  }
+
+  /// Ek hi search bar: items (rate) AUR parties (customer / supplier) dono ek sath dhundta hai.
+  Future<void> _onSearch(String q) async {
+    final t = q.trim();
+    setState(() => _query = t);
+    if (t.isEmpty) {
+      setState(() {
+        _matches = const [];
+        _partyMatches = const [];
+      });
+      return;
+    }
+    try {
+      _products ??= await DashboardRepository.instance.loadProducts();
+    } catch (e) {
+      _toast(e.toString());
+      return;
+    }
+    // Parties ka load fail ho jaye to bhi items dikhen.
+    try {
+      _parties ??= await PartyDashboardRepository.instance.loadParties();
+    } catch (_) {}
+    // Is dauran user ne aur type kar diya ho to purana jawab na dikhayen.
+    if (!mounted || _searchCtrl.text.trim() != t) return;
+    setState(() {
+      _matches = dashboardSearch(_products!, t);
+      _partyMatches = _parties == null
+          ? const []
+          : dashboardPartySearch(_parties!, t, customers: _showCustomers, suppliers: _showSuppliers);
+    });
+  }
+
+  /// Header ka Sync button: Settings wala Sync Now (internet nahi => message). Baad mein dashboard refresh.
+  Future<void> _syncNow() async {
+    if (_syncing) return;
+    setState(() => _syncing = true);
+    try {
+      final summary = await SettingsSync.syncNow();
+      if (!mounted) return;
+      _toast(summary ?? Loc.t('No internet connection', 'انٹرنیٹ کنکشن نہیں'));
+    } catch (_) {
+      if (mounted) _toast(Loc.t('Sync failed', 'سنک ناکام'));
+    } finally {
+      if (mounted) setState(() => _syncing = false);
+    }
+    if (!mounted) return;
+    _products = null;
+    _parties = null;
+    await _refresh();
+    if (_query.isNotEmpty) _onSearch(_searchCtrl.text);
+  }
+
+  bool get _canSeeSuppliers => _am.contains(Session.role); // cashier ko supplier screen band
+
+  // ------------------------------------------------------------ navigation
+
+  Future<void> _push(Widget screen) async {
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+    if (!mounted) return;
+    _products = null; // products doosri screen par badal sakte hain
+    _parties = null; // baqaya badal gaya ho sakta hai
+    _refresh();
+    if (_query.isNotEmpty) _onSearch(_searchCtrl.text);
+  }
+
+  /// Payment Received / Made: parties load karke seedha picker kholta hai; chunne par us party ka
+  /// payment dialog (baqaya "Full due" ke saath) khulta hai.
+  Future<void> _quickPayment({required bool forCustomer}) async {
+    try {
+      final parties = await PartyDashboardRepository.instance.loadParties();
+      if (!mounted) return;
+      await showPartyPickerForPayment(
+        context,
+        parties: parties,
+        forCustomer: forCustomer,
+        onPicked: (r) => _push(PartyTransactionScreen(
+          partyId: r.id,
+          partyName: r.name,
+          isCustomer: r.isCustomer,
+          openPayment: true,
+          dueHint: r.closing > 0 ? r.closing : 0,
+        )),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
+  void _run(_Action a) {
+    if (a.onTap != null) {
+      a.onTap!();
+    } else if (a.open != null) {
+      _push(a.open!());
+    } else {
+      _toast(Loc.t('Coming soon', 'جلد آ رہا ہے'));
+    }
+  }
+
+  Future<void> _logout() async {
+    await Session.clear();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const LoginScreen()), (_) => false);
+  }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  // ------------------------------------------------------------ quick switch
+
+  Future<void> _openQuickSwitch() async {
+    final List<User> users;
+    try {
+      users = await DashboardRepository.instance.activeUsers();
+    } catch (e) {
+      _toast(e.toString());
+      return;
+    }
+    if (!mounted || users.isEmpty) return;
+    final picked = await showDialog<User>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(Loc.t('Switch User', 'یوزر تبدیل کریں')),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView(
+            shrinkWrap: true,
+            children: [for (final u in users) _switchRow(ctx, u)],
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: Text(Loc.t('Cancel', 'منسوخ کریں')))],
+      ),
+    );
+    if (picked == null || !mounted) return;
+    await _attemptSwitch(picked);
+  }
+
+  Widget _switchRow(BuildContext ctx, User u) {
+    final p = _p;
+    final isCurrent = u.username == Session.username;
+    final roleColor = Color(roleColorValue(u.role));
+    final roleLabel = u.role.isEmpty ? '' : u.role[0].toUpperCase() + u.role.substring(1);
+    return Opacity(
+      opacity: isCurrent ? 0.55 : 1,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        decoration: BoxDecoration(
+          color: p.cardWhite,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: p.border),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: isCurrent ? null : () => Navigator.pop(ctx, u),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(children: [
+              CircleAvatar(
+                radius: 19,
+                backgroundColor: roleColor,
+                child: Text(
+                  u.displayName.isEmpty ? '?' : u.displayName.substring(0, 1).toUpperCase(),
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(
+                    isCurrent ? '${u.displayName} (${Loc.t('Current', 'موجودہ')})' : u.displayName,
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: p.textDark),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(roleLabel, style: TextStyle(fontSize: 11.5, color: roleColor)),
+                ]),
+              ),
+              if (!isCurrent) Icon(Icons.chevron_right, color: p.textMuted),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Kotlin attemptQuickSwitch(): pehle fingerprint; na ho / cancel ho / fail ho to us user ka password.
+  Future<void> _attemptSwitch(User user) async {
+    if (await Biometric.isAvailable()) {
+      final ok = await Biometric.authenticate(
+        reason: Loc.t('Verify fingerprint to switch to ${user.displayName}',
+            '${user.displayName} کے اکاؤنٹ پر جانے کے لیے فنگر پرنٹ سے تصدیق کریں'),
+      );
+      if (!mounted) return;
+      if (ok) {
+        await _completeSwitch(user);
+        return;
+      }
+    }
+    await _askPassword(user);
+  }
+
+  Future<void> _askPassword(User user) async {
+    final typed = await showDialog<String>(context: context, builder: (_) => _PasswordDialog(name: user.displayName));
+    if (typed == null || !mounted) return;
+    final bool ok;
+    try {
+      ok = await DashboardRepository.instance.verifySwitchPassword(user, typed);
+    } catch (e) {
+      _toast(e.toString());
+      return;
+    }
+    if (!mounted) return;
+    if (ok) {
+      await _completeSwitch(user);
+    } else {
+      _toast(Loc.t('Wrong password', 'غلط پاس ورڈ'));
+    }
+  }
+
+  /// Kotlin completeQuickSwitch(): session badlo aur dashboard naye role ke hisaab se dobara banao (recreate()).
+  Future<void> _completeSwitch(User user) async {
+    await DashboardRepository.instance.completeSwitch(user);
+    if (!mounted) return;
+    _toast(Loc.t('Switched to ${user.displayName}', '${user.displayName} پر سوئچ ہو گیا'));
+    Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const DashboardScreen()), (_) => false);
+  }
+
+  // ---------------------------------------------------------------- actions
+
+  /// Kotlin `quickActions` list, usi tarteeb mein.
+  List<_Action> _quickActions(AppPalette p) {
+    final role = Session.role;
+    return [
+      _Action('Sale', 'سیل', 'Start a new sale', 'نئی سیل شروع کریں', Icons.shopping_cart_outlined, p.flatPurpleBg, p.flatPurpleFg,
+          open: () => const SaleScreen()),
+      _Action('Quick Sale', 'کوئیک سیل', 'Fast single-item sale', 'ایک آئٹم کی تیز سیل', Icons.timer_outlined, p.flatPurpleBg,
+          p.flatPurpleFg,
+          open: () => const SaleScreen(openQuickSale: true)),
+      if (role == 'admin')
+        _Action('Purchase', 'خریداری', 'Record a purchase', 'خریداری درج کریں', Icons.inventory_2_outlined, p.flatCoralBg, p.flatCoralFg,
+            open: () => const RoleGuard(allowed: _admin, child: PurchaseScreen())),
+      // Daily Bills (admin/manager) ab seedha dashboard par; Cash in/out dashboard se hata diya
+      // (Settings -> Cash & Bank aur Customers & Suppliers se ab bhi khulta hai).
+      if (_am.contains(role))
+        _Action('Daily Bills', 'روزانہ بلز', 'One bill per customer per day', 'ہر کسٹمر کا دن کا ایک بل', Icons.receipt_long_outlined,
+            p.flatAmberBg, p.flatAmberFg,
+            open: () => const DailyBillsScreen()),
+      // Payments ke do alag tiles: ek tap => seedha party picker (beech ki Customers screen / chooser khatam).
+      _Action('Payment\nReceived', 'ادائیگی\nوصول', 'Money received from a customer', 'کسٹمر سے رقم وصول', Icons.south_west, p.flatTealBg,
+          p.flatTealFg,
+          onTap: () => _quickPayment(forCustomer: true)),
+      // Supplier screen cashier ke liye band (PartyTransactionScreen ki tarah).
+      if (_am.contains(role))
+        _Action('Payment\nMade', 'ادائیگی\nادا', 'Money paid to a supplier', 'سپلائر کو رقم ادا', Icons.north_east, p.flatCoralBg,
+            p.flatCoralFg,
+            onTap: () => _quickPayment(forCustomer: false)),
+      if (Permissions.can('due_reminders'))
+        _Action('Collection', 'وصولی', 'Remind today + all pending dues', 'آج کی یاد دہانی اور تمام بقایا', Icons.bolt_rounded,
+            p.flatAmberBg, p.flatAmberFg,
+            open: () => const CollectionHubScreen(), badge: _autopilotTodo > 0 ? _autopilotTodo : (_focus?.overdueCount ?? 0)),
+      // Receivables (aging) ab Collection ke andar 3rd tab ("Aging") — wasooli sab ek page par.
+      _Action('Customers &\nSuppliers', 'گاہک اور\nسپلائر', 'Manage ledgers & dues', 'کھاتے اور بقایا', Icons.people_outline, p.flatPinkBg,
+          p.flatPinkFg,
+          open: () => const PartyDashboardScreen()),
+      // Amanat / Loan: ab Due Reminders se alag, seedha dashboard par (add / edit / delete wahin;
+      // party 'customers' table se hi sync hoti hai, is liye baqi parties ki tarah sab devices par auto-sync).
+      if (_am.contains(role))
+        _Action('Deposit / Loan', 'امانت / قرض', 'Deposits held & loans given', 'رکھوائی امانت اور دیے گئے قرض', Icons.account_balance_wallet_outlined,
+            p.flatAmberBg, p.flatAmberFg,
+            open: () => const AmanatLoanScreen()),
+      _Action('Low Stock', 'کم اسٹاک', 'Items needing restock', 'دوبارہ منگوانے والی اشیاء', Icons.warning_amber_rounded, _partyRedBg,
+          _partyRed,
+          open: () => const StockReportScreen(lowStockOnly: true)),
+      // Hanna Medical Store: batch-wise expiry report + formula / substitute search.
+      _Action('Expiry', 'ایکسپائری', 'Expired & near-expiry', 'ایکسپائر اور قریب', Icons.event_busy_outlined, _partyRedBg, _partyRed,
+          open: () => const MedicineScreen()),
+      _Action('Formula Search', 'فارمولا سرچ', 'Medicine, formula & substitute', 'دوائی، فارمولا اور متبادل', Icons.medication_outlined,
+          p.flatTealBg, p.flatTealFg,
+          open: () => const MedicineScreen(openSearch: true)),
+      // Kotlin jaisa: Items tile sab roles ko (koi gate nahi). ItemsScreen ke andar cashier ko cost nahi
+      // dikhta aur add/edit/delete sirf admin (lib/screens/items_screen.dart, items_repository.dart).
+      _Action('Items', 'آئٹمز', 'Products, categories & units', 'پروڈکٹس، کیٹیگریز اور یونٹس', Icons.list_alt, p.flatBlueBg, p.flatBlueFg,
+          open: () => const ItemsScreen()),
+      if (_am.contains(role))
+        _Action('Backup', 'بیک اپ', 'Export data (CSV + PDF)', 'ڈیٹا ایکسپورٹ', Icons.save_outlined, p.flatBlueBg, p.flatBlueFg,
+            open: () => const BackupExportScreen()),
+      _Action('Day book', 'روزنامچہ', 'View daily ledger', 'روزانہ کھاتہ', Icons.menu_book_outlined, p.flatTealBg, p.flatTealFg,
+          open: () => const DayBookScreen()),
+      if (showsLogoutTile(role))
+        _Action('Logout', 'لاگ آؤٹ', 'Sign out of this session', 'اس سیشن سے سائن آؤٹ کریں', Icons.logout, _partyRedBg, _partyRed,
+            onTap: _logout),
+    ];
+  }
+
+  // ------------------------------------------------------------------ build
+
+  @override
+  Widget build(BuildContext context) {
+    final p = _p;
+    final mq = MediaQuery.of(context);
+    final cols = dashboardColumns(mq.size.width);
+    return Scaffold(
+      backgroundColor: p.bg,
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            _header(p, mq.padding.top),
+            Padding(
+              padding: EdgeInsets.fromLTRB(16, 20, 16, 28 + mq.padding.bottom),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                _searchBar(p),
+                if (_query.isNotEmpty) _unifiedResults(p),
+                if (_focus != null) ...[
+                  const SizedBox(height: 18),
+                  TodaysCollectionCard(
+                    focus: _focus!,
+                    onOpen: () => _push(const CollectionHubScreen(initialFilter: FollowUpFilter.focus)),
+                    onOpenFilter: (f) => _push(CollectionHubScreen(initialFilter: f)),
+                    onChanged: _refresh,
+                    onOpenReceivables: () => _push(const CollectionHubScreen(initialTab: 2)),
+                    onReceive: (f) async {
+                      final id = f.party.partyId;
+                      if (id == null) return;
+                      final saved = await receiveFromParty(context, partyId: id, partyName: f.party.partyName, due: f.total);
+                      if (saved) await _refresh();
+                    },
+                  ),
+                ],
+                const SizedBox(height: 26),
+                _sectionLabel(p, Loc.t('QUICK ACTIONS', 'فوری کام')),
+                _grid(_quickActions(p), cols, p),
+                const SizedBox(height: 22),
+                _sectionLabel(p, Loc.t('DUES SUMMARY', 'بقایا کا خلاصہ')),
+                _duesRow(),
+                if (_pending > 0) _syncPendingLabel(),
+              ]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _header(AppPalette p, double topInset) {
+    final role = Session.role;
+    final roleLabel = role.isEmpty ? '' : role[0].toUpperCase() + role.substring(1);
+    return Container(
+      padding: EdgeInsets.fromLTRB(16, topInset + 14, 16, 16),
+      decoration: BoxDecoration(
+        color: p.cardWhite,
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(28)),
+        border: Border(bottom: BorderSide(color: p.border)),
+      ),
+      child: Column(children: [
+        Row(children: [
+          // Products & Reports Kotlin mein Settings ke andar hain — gear yahin le jata hai.
+          _circleButton(Icons.settings_outlined, p.flatPurpleBg, p.flatPurpleFg, Loc.t('Settings', 'سیٹنگز'),
+              () => _push(const SettingsScreen())),
+          const SizedBox(width: 10),
+          // Dark mode ab sirf Settings mein; yahan Sync (pending ho to laal dot).
+          _syncButton(p),
+          const SizedBox(width: 10),
+          _circleButton(Icons.swap_horiz, p.flatTealBg, p.flatTealFg, Loc.t('Switch user', 'یوزر تبدیل کریں'), _openQuickSwitch),
+          const Spacer(),
+          Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              width: 40,
+              height: 40,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(shape: BoxShape.circle, color: p.flatPurpleBg),
+              child: Text('IK', style: TextStyle(color: p.flatPurpleFg, fontWeight: FontWeight.bold, fontSize: 13)),
+            ),
+            const SizedBox(height: 5),
+            Text('$roleLabel ${Loc.t('Panel', 'پینل')}',
+                style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: p.textMuted)),
+          ]),
+        ]),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 16, 8, 0),
+          child: Text(
+            _shopName.isEmpty ? _defaultShopName : _shopName,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 19.5, fontWeight: FontWeight.bold, color: p.textDark),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _circleButton(IconData icon, Color bg, Color fg, String tooltip, VoidCallback onTap) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: bg,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: SizedBox(width: 40, height: 40, child: Icon(icon, size: 18, color: fg)),
+        ),
+      ),
+    );
+  }
+
+  Widget _syncButton(AppPalette p) {
+    return Tooltip(
+      message: Loc.t('Sync now', 'ابھی سنک کریں'),
+      child: Material(
+        color: p.flatAmberBg,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: _syncing ? null : _syncNow,
+          child: SizedBox(
+            width: 40,
+            height: 40,
+            child: Stack(alignment: Alignment.center, children: [
+              _syncing
+                  ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: p.flatAmberFg))
+                  : Icon(Icons.sync, size: 18, color: p.flatAmberFg),
+              if (_pending > 0 && !_syncing)
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Container(
+                    width: 9,
+                    height: 9,
+                    decoration: BoxDecoration(
+                      color: _partyRed,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: p.flatAmberBg, width: 1.5),
+                    ),
+                  ),
+                ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _searchBar(AppPalette p) {
+    return Container(
+      padding: const EdgeInsetsDirectional.fromSTEB(10, 6, 8, 6),
+      decoration: BoxDecoration(
+        color: p.cardWhite,
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: p.border),
+      ),
+      child: Row(children: [
+        IconBadge(icon: Icons.search, color: p.flatTealFg, bg: p.flatTealBg, size: 36, iconSize: 16),
+        const SizedBox(width: 12),
+        Expanded(
+          child: TextField(
+            controller: _searchCtrl,
+            onChanged: _onSearch,
+            textInputAction: TextInputAction.search,
+            style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold, color: p.textDark),
+            decoration: InputDecoration(
+              isDense: true,
+              border: InputBorder.none,
+              hintText: _canSeeSuppliers
+                  ? Loc.t('Search item, customer, supplier…', 'آئٹم، کسٹمر، سپلائر سرچ کریں…')
+                  : Loc.t('Search item, customer…', 'آئٹم، کسٹمر سرچ کریں…'),
+              hintStyle: TextStyle(color: p.textMuted, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+        if (_query.isNotEmpty)
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            icon: Icon(Icons.close, size: 18, color: p.textMuted),
+            onPressed: () {
+              _searchCtrl.clear();
+              _onSearch('');
+            },
+          ),
+      ]),
+    );
+  }
+
+  /// Ek search ke nateeje: pehle Items (rate), phir Parties (chips ke sath).
+  Widget _unifiedResults(AppPalette p) {
+    Widget header(String text) => Padding(
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 4),
+          child: Text(text, style: TextStyle(fontSize: 11.5, letterSpacing: 0.6, fontWeight: FontWeight.bold, color: p.textMuted)),
+        );
+    Widget empty(String text) => Padding(
+          padding: const EdgeInsets.fromLTRB(18, 6, 18, 12),
+          child: Text(text, style: TextStyle(fontSize: 13, color: p.textMuted)),
+        );
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      decoration: BoxDecoration(
+        color: p.cardWhite,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: p.border),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        header(Loc.t('ITEMS', 'آئٹمز')),
+        if (_matches.isEmpty) empty(Loc.t('No matching items', 'کوئی آئٹم نہیں ملا')) else _itemRows(p),
+        Divider(height: 1, thickness: 1, color: p.border),
+        header(Loc.t('PARTIES', 'پارٹیاں')),
+        if (_canSeeSuppliers)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 2, 14, 0),
+            child: Wrap(spacing: 8, children: [
+              _partyChip(p, Loc.t('All', 'سب'), _showCustomers && _showSuppliers, () => _setPartyFilter(true, true)),
+              _partyChip(p, Loc.t('Customers', 'کسٹمرز'), _showCustomers && !_showSuppliers, () => _setPartyFilter(true, false)),
+              _partyChip(p, Loc.t('Suppliers', 'سپلائرز'), !_showCustomers && _showSuppliers, () => _setPartyFilter(false, true)),
+            ]),
+          ),
+        if (_partyMatches.isEmpty)
+          empty(Loc.t('No matching party', 'کوئی پارٹی نہیں ملی'))
+        else
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 14), child: _partyResults(p)),
+        const SizedBox(height: 6),
+      ]),
+    );
+  }
+
+  /// Kotlin runItemSearch(): pehle 6 match; tap => ItemSearchScreen usi item par khuli hui.
+  Widget _itemRows(AppPalette p) {
+    return Column(children: [
+      for (var i = 0; i < _matches.length; i++) ...[
+        InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => _push(ItemSearchScreen(preselectBarcode: _matches[i].barcode)),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            child: Row(children: [
+              Expanded(
+                child: Text(_matches[i].name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: p.textDark)),
+              ),
+              const SizedBox(width: 10),
+              Text(dashboardAmount(_matches[i].salePrice),
+                  style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: p.flatBlueFg)),
+            ]),
+          ),
+        ),
+        if (i != _matches.length - 1) Divider(height: 1, thickness: 1, indent: 18, endIndent: 18, color: p.border),
+      ],
+    ]);
+  }
+
+  Widget _sectionLabel(AppPalette p, String text) => Padding(
+        padding: const EdgeInsetsDirectional.only(start: 4, bottom: 14),
+        child: Text(text, style: TextStyle(fontSize: 12.5, letterSpacing: 0.8, fontWeight: FontWeight.bold, color: p.textMuted)),
+      );
+
+  Widget _statCard({
+    required String label,
+    required String value,
+    required Color bg,
+    required Color fg,
+    VoidCallback? onTap,
+  }) {
+    return Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(26),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(26),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(label, style: TextStyle(fontSize: 12.5, color: fg)),
+            const SizedBox(height: 6),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: AlignmentDirectional.centerStart,
+              child: Text(value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: fg)),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  void _setPartyFilter(bool customers, bool suppliers) {
+    setState(() {
+      _showCustomers = customers;
+      _showSuppliers = suppliers;
+    });
+    if (_query.isNotEmpty) _onSearch(_searchCtrl.text);
+  }
+
+  Widget _partyChip(AppPalette p, String label, bool selected, VoidCallback onTap) {
+    return ChoiceChip(
+      label: Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: selected ? p.flatPinkFg : p.textMuted)),
+      selected: selected,
+      selectedColor: p.flatPinkBg,
+      backgroundColor: p.cardWhite,
+      side: BorderSide(color: p.border),
+      showCheckmark: false,
+      visualDensity: VisualDensity.compact,
+      onSelected: (_) => onTap(),
+    );
+  }
+
+  Widget _partyResults(AppPalette p) {
+    if (_partyMatches.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(4, 14, 4, 8),
+        child: Text(Loc.t('No matching party', 'کوئی پارٹی نہیں ملی'), style: TextStyle(fontSize: 13, color: p.textMuted)),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Column(children: [
+        for (var i = 0; i < _partyMatches.length; i++) ...[
+          _partyRow(p, _partyMatches[i]),
+          if (i != _partyMatches.length - 1) Divider(height: 1, thickness: 1, color: p.border),
+        ],
+      ]),
+    );
+  }
+
+  Widget _partyRow(AppPalette p, PartyRow r) {
+    final settled = r.isSettled;
+    final color = settled ? p.textMuted : (r.isGive ? _partyRed : _partyGreen);
+    final status = settled
+        ? Loc.t('Settled', 'برابر')
+        : (r.isGive ? Loc.t("You'll give", 'دینا ہے') : Loc.t("You'll get", 'ملنا ہے'));
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () => _push(PartyTransactionScreen(
+        partyId: r.id,
+        partyName: r.name,
+        isCustomer: r.isCustomer,
+        dueHint: r.closing > 0 ? r.closing : 0,
+      )),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+        child: Row(children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(r.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: p.textDark)),
+              const SizedBox(height: 3),
+              Text(
+                [
+                  r.isCustomer ? Loc.t('Customer', 'کسٹمر') : Loc.t('Supplier', 'سپلائر'),
+                  if (r.phone.isNotEmpty) r.phone,
+                ].join(' • '),
+                style: TextStyle(fontSize: 11, color: p.textMuted),
+              ),
+            ]),
+          ),
+          const SizedBox(width: 10),
+          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Text(dashboardAmount(r.closing.abs()), style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: color)),
+            const SizedBox(height: 3),
+            Text(status, style: TextStyle(fontSize: 11, color: color)),
+          ]),
+        ]),
+      ),
+    );
+  }
+
+  /// Kotlin: dono card tap => Party Dashboard.
+  Widget _duesRow() {
+    return Row(children: [
+      Expanded(
+        child: _statCard(
+          label: Loc.t("You'll get", 'آپ کو ملنا ہے'),
+          value: dashboardAmount(_toGet),
+          bg: _partyGreenBg,
+          fg: _partyGreen,
+          onTap: () => _push(const PartyDashboardScreen()),
+        ),
+      ),
+      const SizedBox(width: 18),
+      Expanded(
+        child: _statCard(
+          label: Loc.t("You'll give", 'آپ کو دینا ہے'),
+          value: dashboardAmount(_toGive),
+          bg: _partyRedBg,
+          fg: _partyRed,
+          onTap: () => _push(const PartyDashboardScreen()),
+        ),
+      ),
+    ]);
+  }
+
+  /// sync_queue mein na bheji hui rows — tap => Settings (Kotlin: Sync History wahin hai).
+  Widget _syncPendingLabel() {
+    final msg = syncPendingMessage(_pending, urdu: Loc.isUrdu);
+    if (msg == null) return const SizedBox.shrink();
+    return InkWell(
+      onTap: () => _push(const SettingsScreen()),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(4, 10, 4, 0),
+        child: Text(msg, style: const TextStyle(fontSize: 12, color: _partyRed)),
+      ),
+    );
+  }
+
+  /// Kotlin buildQuickActionRows(): har row mein [cols] card (2 / 3 / 4).
+  Widget _grid(List<_Action> actions, int cols, AppPalette p) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: EdgeInsets.zero,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: cols,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
+        mainAxisExtent: 146,
+      ),
+      itemCount: actions.length,
+      itemBuilder: (_, i) => _actionCard(actions[i], p),
+    );
+  }
+
+  Widget _actionCard(_Action a, AppPalette p) {
+    final comingSoon = a.open == null && a.onTap == null;
+    return Material(
+      color: p.cardWhite,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22), side: BorderSide(color: p.border)),
+      child: InkWell(
+        customBorder: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        onTap: () => _run(a),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              IconBadge(icon: a.icon, color: a.fg, bg: a.bg, size: 36, iconSize: 18),
+              const Spacer(),
+              if (a.badge > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(color: _partyRed, borderRadius: BorderRadius.circular(10)),
+                  child: Text('${a.badge}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+                ),
+            ]),
+            const SizedBox(height: 12),
+            Text(
+              Loc.t(a.en, a.ur),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold, color: comingSoon ? p.textMuted : p.textDark),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              Loc.t(a.subEn, a.subUr),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 11, color: p.textMuted),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+/// Kotlin askPasswordForSwitch() ka dialog. Apna controller khud sambhalta hai (dialog band hone par dispose).
+class _PasswordDialog extends StatefulWidget {
+  final String name;
+  const _PasswordDialog({required this.name});
+
+  @override
+  State<_PasswordDialog> createState() => _PasswordDialogState();
+}
+
+class _PasswordDialogState extends State<_PasswordDialog> {
+  final _ctrl = TextEditingController();
+  bool _obscure = true;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(Loc.t('Verify Password', 'پاس ورڈ کی تصدیق')),
+      content: TextField(
+        controller: _ctrl,
+        autofocus: true,
+        obscureText: _obscure,
+        onSubmitted: (v) => Navigator.pop(context, v),
+        decoration: InputDecoration(
+          hintText: Loc.t("${widget.name}'s password", '${widget.name} کا پاس ورڈ'),
+          suffixIcon: IconButton(
+            icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+            onPressed: () => setState(() => _obscure = !_obscure),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: Text(Loc.t('Cancel', 'منسوخ کریں'))),
+        FilledButton(onPressed: () => Navigator.pop(context, _ctrl.text), child: Text(Loc.t('Switch', 'سوئچ کریں'))),
+      ],
+    );
+  }
+}

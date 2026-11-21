@@ -3,10 +3,10 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:hanna_installment/sync/sync_apply_rest.dart';
-import 'package:hanna_installment/sync/sync_pull_plan.dart';
-import 'package:hanna_installment/sync/sync_push_plan.dart';
-import 'package:hanna_installment/sync/sync_queue_helper.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_apply_rest.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_pull_plan.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_push_plan.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_queue_helper.dart';
 
 /// Shop Rents sync: enqueue (payload + entity id) aur pull apply (insert / terms / link / tombstone / conflict).
 Future<Database> _memDb() async {

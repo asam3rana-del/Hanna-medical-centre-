@@ -22,11 +22,6 @@ export const SYNC_COLLECTIONS: Record<string, string> = {
   worker_advance: "worker_advances", worker_salary_payment: "worker_salary_payments", shop_rent: "shop_rents",
   shop_rent_entry: "shop_rent_ledger", utility_bill: "utility_bills",
   utility_bill_payment: "utility_bill_payments", due_followup: "due_followups",
-  // Hanna Installment (lib/installment/inst_sync_names.dart)
-  inst_profile: "inst_customer_profiles", inst_guarantor: "inst_guarantors", inst_category: "inst_categories",
-  inst_item: "inst_items", inst_plan: "inst_plans", inst_payment: "inst_payments", inst_photo: "inst_photos",
-  inst_price_change: "inst_price_changes", // sirf admin / manager (cashier list mein nahi)
-  inst_cash_sale: "inst_cash_sales", inst_purchase_return: "inst_purchase_returns", inst_supplier: "inst_suppliers", inst_purchase: "inst_purchases", inst_supplier_payment: "inst_supplier_payments", // khareed: sirf admin / manager
 };
 
 export const OPERATIONS = ["upsert", "delete", "create_if_absent", "increment_stock", "increment_balance", "set_stock"];
@@ -45,8 +40,6 @@ export const validOpId = (v: unknown): v is string => typeof v === "string" && /
 const CASHIER_UPSERT = new Set([
   "customer", "sale", "payment", "expense", "cash_transaction", "return", "stock_movement",
   "shell_customer", "shell_transaction", "shop_empty_shell_log", "due_followup",
-  // Hanna Installment: cashier qist leta hai, plan / customer / zamin banata hai, bika saman "sold" karta hai.
-  "inst_profile", "inst_guarantor", "inst_item", "inst_plan", "inst_payment", "inst_photo", "inst_cash_sale",
 ]);
 export function roleMayDo(role: StaffRole, type: string, op: string): boolean {
   if (!(type in SYNC_COLLECTIONS) || !OPERATIONS.includes(op)) return false;
@@ -70,9 +63,7 @@ const CASHIER_CUSTOMER_PROTECTED = ["creditLimit", "openingBalance", "stuckBalan
 /** Removes fields a client must never set directly. Throws SyncRuleError when the role may not do it at all. */
 export function sanitizeUpsertPayload(type: string, role: StaffRole, raw: unknown, docExists: boolean): Obj {
   if (!isObj(raw)) throw new SyncRuleError("invalid-argument", "payload must be an object");
-  // inst_photo: base64 JPEG (app side max 600 KB file) — Firestore doc limit 1 MiB.
-  const maxLen = type === "inst_photo" ? 1000000 : 200000;
-  if (JSON.stringify(raw).length > maxLen) throw new SyncRuleError("invalid-argument", "payload too large");
+  if (JSON.stringify(raw).length > 200000) throw new SyncRuleError("invalid-argument", "payload too large");
   const p: Obj = {...raw};
   for (const k of SERVER_ONLY) delete p[k];
   if (p._restore === true && role === "cashier") throw new SyncRuleError("permission-denied", "Restore is not allowed for this role.");

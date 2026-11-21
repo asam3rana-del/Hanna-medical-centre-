@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:hanna_installment/sync/branch_config_store.dart';
-import 'package:hanna_installment/sync/cloud_config_store.dart';
-import 'package:hanna_installment/sync/device_tag.dart';
-import 'package:hanna_installment/sync/network_monitor.dart';
+import 'package:ah_developer_kiryana_store/sync/branch_config_store.dart';
+import 'package:ah_developer_kiryana_store/sync/cloud_config_store.dart';
+import 'package:ah_developer_kiryana_store/sync/device_tag.dart';
+import 'package:ah_developer_kiryana_store/sync/network_monitor.dart';
 
 /// Phase 10 (chhoti files): DeviceTag, BranchConfigStore, CloudConfigStore, NetworkMonitor.
 void main() {

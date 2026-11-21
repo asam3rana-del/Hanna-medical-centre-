@@ -37,9 +37,7 @@ service cloud.firestore {
                              'workers', 'worker_attendance', 'worker_advances',
                              'worker_salary_payments',
                              'shop_rents', 'shop_rent_ledger',
-                             'utility_bills', 'utility_bill_payments',
-                             // Hanna Installment
-                             'inst_customer_profiles', 'inst_guarantors', 'inst_categories', 'inst_items', 'inst_plans', 'inst_payments', 'inst_photos', 'inst_price_changes', 'inst_cash_sales', 'inst_suppliers', 'inst_purchases', 'inst_supplier_payments', 'inst_purchase_returns'];
+                             'utility_bills', 'utility_bill_payments'];
     }
 
     // due_followups is NOT in isSyncedCollection(): Firestore ORs matching rules, so the

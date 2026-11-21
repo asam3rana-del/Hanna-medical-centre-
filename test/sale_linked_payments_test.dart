@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/sale_repository.dart';
-import 'package:hanna_installment/utils/split_payment.dart';
+import 'package:ah_developer_kiryana_store/db/sale_repository.dart';
+import 'package:ah_developer_kiryana_store/utils/split_payment.dart';
 
 void main() {
   // Kotlin RoomSaleRepository.saveSale(): `linkedToSkip` — bill-linked payments

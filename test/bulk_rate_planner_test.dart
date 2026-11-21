@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/models/product.dart';
-import 'package:hanna_installment/utils/bulk_rate_planner.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
+import 'package:ah_developer_kiryana_store/utils/bulk_rate_planner.dart';
 
 Product _p(String b, {double sale = 0, double wholesale = 0, double bulk = 0, double bulkQty = 0, String cat = 'A'}) =>
     Product(barcode: b, name: b, category: cat, salePrice: sale, wholesalePrice: wholesale, bulkPrice: bulk, bulkMinQty: bulkQty);

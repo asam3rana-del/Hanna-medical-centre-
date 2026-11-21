@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hanna_installment/db/daily_bills_repository.dart';
-import 'package:hanna_installment/utils/slip_pdf_data.dart';
+import 'package:ah_developer_kiryana_store/db/daily_bills_repository.dart';
+import 'package:ah_developer_kiryana_store/utils/slip_pdf_data.dart';
 
 void main() {
   test('slipMoney / slipRate / slipQty formatting', () {

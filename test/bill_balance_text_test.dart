@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hanna_installment/utils/bill_text.dart';
+import 'package:ah_developer_kiryana_store/utils/bill_text.dart';
 
 void main() {
   test('sale bill text shows Prev/Net balance only when netBalance given', () {

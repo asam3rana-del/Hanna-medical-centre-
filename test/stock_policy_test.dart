@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hanna_installment/utils/stock_policy.dart';
+import 'package:ah_developer_kiryana_store/utils/stock_policy.dart';
 
 void main() {
   test('shortWarning shows the minus stock after the sale', () {

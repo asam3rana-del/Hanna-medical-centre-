@@ -10,16 +10,14 @@ import 'backup/backup_scheduler.dart';
 import 'backup/offsite_backup.dart';
 import 'db/user_repository.dart';
 import 'db/desktop_db_init.dart';
-import 'installment/inst_due_alert.dart';
-import 'installment/inst_photo_sync.dart';
-import 'installment/installment_home_screen.dart';
-import 'license/license_screen.dart';
+import 'screens/dashboard_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/app_lock.dart';
 import 'services/crash_handler.dart';
 import 'services/demo_mode.dart';
 import 'services/bill_reminder_service.dart';
 import 'services/due_alert_service.dart';
+import 'services/return_alert_service.dart';
 import 'services/session.dart';
 import 'sync/branch_config_store.dart';
 import 'sync/device_tag.dart';
@@ -64,8 +62,6 @@ void main() async {
   // Phase 10 ka aakhri jor: SyncRepository.backend = SyncApi, afterApply = mergeOwnDuplicateExpenses,
   // SyncQueueHelper.onQueued = SyncWorker.triggerNow (Kotlin `SyncQueueHelper.trigger`).
   installSyncWiring();
-  // Hanna Installment: customer / zamin ki tasveerein bhi sync (Firestore documents mein).
-  InstPhotoSync.install();
   NetworkMonitor.onOnline = () => SyncWorker.instance.triggerNow();
   try {
     await NetworkMonitor.register();
@@ -77,9 +73,9 @@ void main() async {
   // Roz ki due-reminder notification: app khulte hi check; tap par Due Reminders screen.
   try {
     await DueAlertService.init(withTap: true);
-    // Hanna Installment: POS udhaar / Amanat-Loan notifications band; qist + bills + backup chalti hain.
+    unawaited(DueAlertService.checkAndNotify());
     unawaited(BillReminderService.checkAndNotify());
-    unawaited(InstDueAlert.checkAndNotify());
+    unawaited(ReturnAlertService.checkAndNotify());
     unawaited(OffsiteBackup.checkAndNotify());
   } catch (_) {}
   runApp(const AhDeveloperApp());
@@ -122,7 +118,7 @@ class AhDeveloperApp extends StatelessWidget {
           // zabaan / theme badalne par saari screens dobara ban jayein
           // Demo on/off par bhi poora tree naya (kisi screen mein doosri dukaan ka purana data na reh jaye).
           key: ValueKey('$lang-$dark-$demo'),
-          title: demo ? 'Hanna Installment (DEMO)' : 'Hanna Installment',
+          title: demo ? 'Hanna Medical Store (DEMO)' : 'Hanna Medical Store',
           debugShowCheckedModeBanner: false,
           theme: _buildTheme(p, dark),
           // Desktop: mouse se bhi drag-scroll (touch-screen POS jaisa).
@@ -146,8 +142,7 @@ class AhDeveloperApp extends StatelessWidget {
             ),
           ),
           // Session hai to seedha dashboard, warna login/setup.
-          // License: pehle sahi key, phir login (license_screen.dart LicenseGate).
-          home: LicenseGate(child: Session.isLoggedIn ? const InstallmentHomeScreen() : const LoginScreen()),
+          home: Session.isLoggedIn ? const DashboardScreen() : const LoginScreen(),
         );
       },
     );

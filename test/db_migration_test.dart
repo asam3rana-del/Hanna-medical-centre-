@@ -4,16 +4,16 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:hanna_installment/db/app_database.dart';
+import 'package:ah_developer_kiryana_store/db/app_database.dart';
 
 /// Database migration tests (improvement plan, P0 #4).
 ///
-/// Method: a fresh install (v44, via AppDatabase._onCreate) is the reference. For each start version N we
+/// Method: a fresh install (v38, via AppDatabase._onCreate) is the reference. For each start version N we
 ///   1. seed business data into the fresh DB and record its full schema + rows,
 ///   2. close it and "rewind" the file to look like schema vN (drop everything added by migrations > N,
 ///      PRAGMA user_version = N),
 ///   3. re-open through AppDatabase, which runs the real _onUpgrade,
-///   4. require: user_version == 47, integrity_check ok, no FK violations, schema identical to a fresh
+///   4. require: user_version == 38, integrity_check ok, no FK violations, schema identical to a fresh
 ///      install, and every seeded row unchanged.
 ///
 /// Limits (be honest): rewinding is derived from the migration code, not from real old database files, so
@@ -40,16 +40,8 @@ void main() {
 
   // ---- what each migration step added (version -> things to remove when rewinding below it) ----
   final steps = <_Step>[
-    _Step(47, columns: {'customer_profiles': ['khataNo']}),
-    _Step(46, tables: ['inst_securities']),
-    _Step(45, columns: {'customer_profiles': ['blockedReason', 'blockedAt']}),
-    _Step(44, columns: {'inst_cash_sales': ['returnedAt', 'refund', 'returnNote', 'refundCashTxId']}),
-    _Step(43, tables: ['inst_purchase_returns'], columns: {'inst_cash_sales': ['customerId']}),
-    _Step(42, tables: ['inst_cash_sales']),
-    _Step(41, tables: ['inst_supplier_payments', 'inst_purchases', 'inst_suppliers'], columns: {'inst_items': ['purchaseId']}),
-    _Step(40, tables: ['inst_price_changes']),
-    _Step(39, tables: ['inst_payments', 'inst_schedule', 'inst_plans']),
-    _Step(38, tables: ['inst_items', 'inst_categories', 'inst_guarantors', 'customer_profiles']),
+    _Step(39, columns: {'products': ['genericName', 'company', 'rackLocation'], 'purchase_items': ['batchNo', 'expiry']}),
+    _Step(38, tables: ['return_undo']),
     _Step(37, columns: {'customers': ['paySchedule', 'qistPlan']}),
     _Step(36, columns: {'due_followups': ['serverId', 'partyServerId']}),
     _Step(35, tables: ['due_followups']),
@@ -178,7 +170,7 @@ void main() {
   test('fresh install: schema version, integrity, default seed rows', () async {
     final db = await AppDatabase.instance.database;
     await expectHealthy(db);
-    expect(AppDatabase.schemaVersion, 47);
+    expect(AppDatabase.schemaVersion, 39);
     expect((await db.query('categories')).map((r) => r['name']), contains('General'));
     expect((await db.query('units')).map((r) => r['name']), contains('pcs'));
   });

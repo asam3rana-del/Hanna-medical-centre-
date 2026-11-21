@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hanna_installment/utils/slip_text.dart';
+import 'package:ah_developer_kiryana_store/utils/slip_text.dart';
 
 void main() {
   group('slip header', () {

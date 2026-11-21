@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/party_reports_repository.dart';
+import 'package:ah_developer_kiryana_store/db/party_reports_repository.dart';
 
 ReportBill bill(String id, double total, double paid, int t, {String status = 'completed'}) =>
     ReportBill(id: id, total: total, paid: paid, createdAt: t, status: status);

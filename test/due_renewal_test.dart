@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/models/due_renewal.dart';
+import 'package:ah_developer_kiryana_store/models/due_renewal.dart';
 
 int d(int day, [int month = 3]) => DateTime(2026, month, day).millisecondsSinceEpoch;
 

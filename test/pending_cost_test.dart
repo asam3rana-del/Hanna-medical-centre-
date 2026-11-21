@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/cost_backfill.dart';
-import 'package:hanna_installment/db/pending_cost_repository.dart';
+import 'package:ah_developer_kiryana_store/db/cost_backfill.dart';
+import 'package:ah_developer_kiryana_store/db/pending_cost_repository.dart';
 
 PendingCostLine pl({double qty = 10, double est = 100, double rate = 12, int id = 1}) => PendingCostLine(
       itemId: id,

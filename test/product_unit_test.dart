@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/models/product.dart';
-import 'package:hanna_installment/utils/rate_list_csv.dart';
-import 'package:hanna_installment/utils/rate_list_export.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
+import 'package:ah_developer_kiryana_store/utils/rate_list_csv.dart';
+import 'package:ah_developer_kiryana_store/utils/rate_list_export.dart';
 
 /// Kotlin ProductUnitConversionTest.kt ka Dart version + Phase 0/1 fixes
 /// (isFractionalUnit, formatStockBreakdown, ladder rescale, rate list CSV).

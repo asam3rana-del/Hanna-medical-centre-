@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/utils/bill_doc.dart';
-import 'package:hanna_installment/utils/slip_pdf_data.dart';
+import 'package:ah_developer_kiryana_store/utils/bill_doc.dart';
+import 'package:ah_developer_kiryana_store/utils/slip_pdf_data.dart';
 
 void main() {
   final doc = BillDoc(

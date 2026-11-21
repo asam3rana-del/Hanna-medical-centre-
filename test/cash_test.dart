@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/cash_repository.dart';
-import 'package:hanna_installment/models/misc_entities.dart';
+import 'package:ah_developer_kiryana_store/db/cash_repository.dart';
+import 'package:ah_developer_kiryana_store/models/misc_entities.dart';
 
 void main() {
   test('Cash Out under a real category creates an Expense', () {

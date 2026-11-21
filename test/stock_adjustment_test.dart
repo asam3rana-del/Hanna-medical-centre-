@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/stock_adjustment_repository.dart';
-import 'package:hanna_installment/models/product.dart';
+import 'package:ah_developer_kiryana_store/db/stock_adjustment_repository.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
 
 Product prod(String name, {double stock = 10, String barcode = 'b', String category = '', String tag = '', String unit = 'pcs'}) =>
     Product(barcode: barcode, name: name, stock: stock, category: category, searchTag: tag, unit: unit);

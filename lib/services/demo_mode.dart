@@ -16,7 +16,7 @@ class DemoMode {
   static const prefKey = 'demo_mode_enabled';
 
   /// Demo dukaan ki apni DB file (asal: AppDatabase ka `_dbName`).
-  static const demoDbFileName = 'hanna_installment_demo.db';
+  static const demoDbFileName = 'ah_developer_demo_shop.db';
 
   /// UI (banner, MaterialApp key) is ko sunti hai.
   static final ValueNotifier<bool> notifier = ValueNotifier<bool>(false);

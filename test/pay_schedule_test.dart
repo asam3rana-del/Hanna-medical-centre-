@@ -1,11 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/due_reminders_repository.dart';
-import 'package:hanna_installment/models/collection_autopilot.dart';
-import 'package:hanna_installment/models/due_followup.dart';
-import 'package:hanna_installment/models/party.dart';
-import 'package:hanna_installment/models/pay_schedule.dart';
-import 'package:hanna_installment/sync/sync_queue_helper.dart';
+import 'package:ah_developer_kiryana_store/db/due_reminders_repository.dart';
+import 'package:ah_developer_kiryana_store/models/collection_autopilot.dart';
+import 'package:ah_developer_kiryana_store/models/due_followup.dart';
+import 'package:ah_developer_kiryana_store/models/party.dart';
+import 'package:ah_developer_kiryana_store/models/pay_schedule.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_queue_helper.dart';
 
 // 15 Mar 2026 (Sunday), 14:30 local.
 final now = DateTime(2026, 3, 15, 14, 30).millisecondsSinceEpoch;

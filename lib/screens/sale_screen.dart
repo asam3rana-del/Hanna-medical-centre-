@@ -1,0 +1,2872 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:intl/intl.dart' hide TextDirection;
+
+import '../db/bill_cost_repair_repository.dart' show isSuspiciousLineCost;
+import '../db/cost_check_repository.dart';
+import '../db/customer_repository.dart';
+import '../db/party_dashboard_repository.dart';
+import '../db/product_repository.dart';
+import '../db/sale_repository.dart';
+import '../utils/bill_text.dart';
+import '../db/user_repository.dart';
+import 'sale_history_screen.dart';
+import 'payments_screen.dart' show showPaymentDialog;
+import '../models/party.dart';
+import '../models/product.dart';
+import '../models/sale.dart';
+import '../services/sale_draft.dart';
+import '../services/sale_hold_recall.dart';
+import '../services/credit_override_policy.dart';
+import '../services/credit_risk.dart' show CreditRisk, loadCreditRiskByName;
+import '../services/session.dart';
+import '../utils/bill_doc.dart';
+import 'bill_preview_screen.dart';
+import '../utils/discount_calculator.dart';
+import '../utils/due_days.dart';
+import '../utils/input_validation.dart';
+import '../utils/loc.dart';
+import '../utils/medical_expiry.dart';
+import '../utils/sale_cart.dart';
+import '../utils/split_payment.dart';
+import '../utils/stock_touch_policy.dart';
+import '../utils/stock_policy.dart';
+import '../utils/rate_mode.dart';
+import '../widgets/autocomplete_options.dart';
+import '../widgets/held_bills_dialog.dart';
+import '../widgets/premium_widgets.dart';
+import '../widgets/role_guard.dart';
+import 'sale_quick_sale.dart';
+import '../theme/theme_manager.dart';
+import '../db/unit_cost.dart';
+import '../widgets/contact_pick_button.dart';
+
+class SaleScreen extends StatefulWidget {
+  /// null = new sale. An invoice number re-opens that SAVED bill for
+  /// edit / return / delete — admin only (Session role is checked again in
+  /// SaleRepository, this is just the UI side).
+  final String? editInvoice;
+
+  /// Dashboard "Quick Sale" tile (Kotlin EXTRA_OPEN_QUICK_SALE): screen khulte hi Quick Sale dialog.
+  /// Sirf naye sale par (edit mode mein ignore).
+  final bool openQuickSale;
+
+  /// Party screen ke "Add Sale" se: customer ka naam pehle se bhara hua (sirf naye sale par).
+  final String? initialCustomer;
+
+  const SaleScreen({super.key, this.editInvoice, this.openQuickSale = false, this.initialCustomer});
+
+  @override
+  State<SaleScreen> createState() => _SaleScreenState();
+}
+
+class _SaleScreenState extends State<SaleScreen> with WidgetsBindingObserver {
+  final _customerCtrl = TextEditingController();
+  List<PartyRow> _partyRows = const []; // customers ka live baqaya ("Payment lein" button ke liye)
+  final _customerFocus = FocusNode();
+  final _itemCtrl = TextEditingController();
+  final _itemFocus = FocusNode();
+  final _qtyCtrl = TextEditingController();
+  final _qtyFocus = FocusNode();
+  final _priceFocus = FocusNode();
+  final _discountFocus = FocusNode();
+  final _paidFocus = FocusNode();
+  final _priceCtrl = TextEditingController();
+  final _discountCtrl = TextEditingController();
+  final _paidCtrl = TextEditingController();
+  /// Udhaar bill par payment ki date (din ki shuruaat, millis). 0 = set nahi.
+  int _dueDateMillis = 0;
+  int _shopDueDays = kFallbackDueDays; // dukaan ki default udhaar muddat (Settings), customer ki apni na ho tab
+
+  DateTime _saleDate = DateTime.now();
+  bool _isWholesale = false;
+  bool _isShopkeeper = false;
+  RateMode get _rateMode => _isShopkeeper ? RateMode.shopkeeper : (_isWholesale ? RateMode.wholesale : RateMode.retail);
+  Product? _pickedProduct;
+  String _selectedUnit = '';
+
+  /// Rate per PRIMARY unit of what the cashier last typed — switching the
+  /// unit re-converts their own rate. Reset when a product is picked or the
+  /// sale type changes. Mirrors `lastMainPrice` in SaleActivity.kt.
+  double _lastMainPrice = 0.0;
+
+  final List<SaleLine> _lines = [];
+  bool _saving = false;
+  // Synchronous re-entry guard: _saving only turns true AFTER the duplicate-check query, so a quick
+  // double tap / F9 + click could start two saves. Set before the first await.
+  bool _saveEntered = false;
+  final _scrollCtrl = ScrollController();
+
+  /// "Rs" mode: the Quantity box holds a rupee amount and the quantity is
+  /// worked out from the rate (SaleActivity.qtyIsAmountMode).
+  bool _qtyIsAmountMode = false;
+
+  /// Index of the billed line being corrected in place, or null when adding.
+  int? _editingIndex;
+
+  /// Set when the price box was filled with THIS customer's usual rate.
+  String? _customerRateName;
+  // Purana customer rate kyun nahi laga (item ka rate badla / cost se kam) — koi raqam nahi, har role ke liye mehfooz.
+  String? _customerRateSkipNote;
+
+  // Draft autosave (new sales only).
+  Timer? _draftTimer;
+  // True until the saved draft (if any) has been restored — autosaving before
+  // that would overwrite it with an empty bill.
+  bool _suppressDraft = true;
+  bool _draftRestored = false;
+
+  // Saved-sale edit mode.
+  bool get _isEdit => widget.editInvoice != null;
+  Sale? _originalSale;
+  String _paymentMethod = 'Cash';
+
+  /// Split Payment rows (method, amount). Empty = single method, using
+  /// [_paymentMethod] + the Paid Amount box. While non-empty the rows are the
+  /// source of truth and the Paid box is locked to their sum.
+  List<PayEntry> _splitPayments = [];
+
+  /// barcode -> smallest units the ORIGINAL bill already took out of stock.
+  /// Added back to "available" while editing so raising a qty isn't rejected.
+  final Map<String, double> _originalSmallestByBarcode = {};
+
+  List<Product> _products = const [];
+  List<Customer> _customers = const [];
+  StreamSubscription<List<Product>>? _productSub;
+  StreamSubscription<List<Customer>>? _customerSub;
+
+  @override
+  void initState() {
+    super.initState();
+    StockPolicy.load();
+    _loadShopDueDays();
+    WidgetsBinding.instance.addObserver(this);
+    // Kotlin jaisa: qty / rate / discount / paid par focus aate hi purani value select.
+    _selectAllOnFocus(_qtyFocus, _qtyCtrl);
+    _selectAllOnFocus(_priceFocus, _priceCtrl);
+    _selectAllOnFocus(_discountFocus, _discountCtrl);
+    _selectAllOnFocus(_paidFocus, _paidCtrl);
+    for (final f in [_itemFocus, _qtyFocus, _priceFocus]) {
+      f.addListener(() {
+        if (f.hasFocus) _revealItemEntry();
+      });
+    }
+    _customerFocus.addListener(() {
+      // Customer picked/typed AFTER the item: re-check their usual rate.
+      if (!_customerFocus.hasFocus) _suggestCustomerRate();
+    });
+    _load().then((_) {
+      final c = widget.initialCustomer;
+      if (!mounted || _isEdit || c == null || c.trim().isEmpty) return;
+      setState(() => _customerCtrl.text = c.trim());
+    });
+    // Sale shuru hote hi cursor Customer Name par (khali = walk-in; Enter se aage).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _isEdit || widget.openQuickSale) return;
+      if (widget.initialCustomer != null && widget.initialCustomer!.trim().isNotEmpty) {
+        _itemFocus.requestFocus();
+      } else {
+        _customerFocus.requestFocus();
+      }
+    });
+  }
+
+  void _selectAllOnFocus(FocusNode f, TextEditingController c) {
+    f.addListener(() {
+      if (!f.hasFocus || c.text.isEmpty) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (f.hasFocus) c.selection = TextSelection(baseOffset: 0, extentOffset: c.text.length);
+      });
+    });
+  }
+
+  final GlobalKey _saleTypeKey = GlobalKey();
+  final GlobalKey _itemEntryKey = GlobalKey();
+
+  /// Item / Qty / Rate par focus aate hi Add Item card khud scroll ho kar poora dikhe (rate bhi nazar aaye
+  /// aur edit ho sake), keyboard ke upar. Keyboard aur card ka size badalne mein waqt lagta hai, is liye
+  /// do dafa (jaldi, aur keyboard ke baad) koshish hoti hai. Card screen se bada ho (phone) to uska upar wala hissa dikhta hai.
+  void _revealItemEntry() {
+    for (final ms in const [80, 380]) {
+      Future.delayed(Duration(milliseconds: ms), () {
+        if (!mounted) return;
+        if (!(_itemFocus.hasFocus || _qtyFocus.hasFocus || _priceFocus.hasFocus)) return;
+        final ctx = _itemEntryKey.currentContext;
+        if (ctx == null) return;
+        final box = ctx.findRenderObject();
+        if (box is! RenderBox || !box.hasSize || Scrollable.maybeOf(ctx) == null) return;
+        // Hamesha card ka upar wala hissa screen ke top par: unit / qty / rate / Add to Bill nazar aate rahen
+        // (bill ki lines neeche jati hain, entry card upar rehta hai).
+        Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+          alignment: 0.0,
+          alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
+        );
+      });
+    }
+  }
+
+  /// Kotlin goToSaleTypeFromCustomer(): Customer ke baad Sale Type ka dropdown khud khul jaye,
+  /// phir chunne par seedha Item Name par cursor + keyboard.
+  void _goToSaleTypeFromCustomer() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      GestureDetector? tap;
+      void search(Element e) {
+        if (tap != null) return;
+        if (e.widget is GestureDetector) {
+          tap = e.widget as GestureDetector;
+          return;
+        }
+        e.visitChildren(search);
+      }
+      _saleTypeKey.currentContext?.visitChildElements(search);
+      if (tap?.onTap != null) {
+        tap!.onTap!.call();
+      } else {
+        _focus(_itemFocus); // dropdown na khul sakay to seedha item par
+      }
+    });
+  }
+
+  /// Focus agle frame mein dete hain taake Enter ka default focus-move aur
+  /// rebuild pehle ho jaye, aur hamara focus aakhir mein lage.
+  void _focus(FocusNode n) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && n.canRequestFocus) n.requestFocus();
+    });
+  }
+
+  /// Items khatam: Enter khali item box pe -> Discount.
+  void _focusAfterItems() => _focus(_discountFocus);
+
+  // Kotlin loadFirmName(): saved shop_name, warna "Hanna Medical Store".
+  String _firmName = 'Hanna Medical Store';
+
+  Future<void> _loadFirmName() async {
+    final n = (await UserRepository.instance.getSetting('shop_name'))?.trim() ?? '';
+    if (n.isNotEmpty && mounted) setState(() => _firmName = n);
+  }
+
+  Future<void> _loadPartyRows() async {
+    try {
+      final rows = await PartyDashboardRepository.instance.loadParties();
+      if (mounted) setState(() => _partyRows = rows);
+    } catch (_) {
+      // baqaya sirf suvidha hai — load na ho to button bas nahi dikhta.
+    }
+  }
+
+  /// Bill par likha customer agar saved customer ho to uski live row (baqaya shamil).
+  PartyRow? _currentCustomerRow() {
+    final name = _customerCtrl.text.trim().toLowerCase();
+    if (name.isEmpty) return null;
+    for (final r in _partyRows) {
+      if (r.isCustomer && r.name.trim().toLowerCase() == name) return r;
+    }
+    return null;
+  }
+
+  Future<void> _receivePaymentFromCustomer(PartyRow r) async {
+    final ok = await showPaymentDialog(context,
+        isCustomer: true, partyId: r.id, partyName: r.name, due: r.closing > 0 ? r.closing : 0);
+    if (ok) await _loadPartyRows();
+  }
+
+  Future<void> _load() async {
+    if (_isEdit && !Session.isAdmin) return; // build() shows the lock screen
+    _loadFirmName();
+    _loadPartyRows();
+    final products = await ProductRepository.instance.listAll();
+    final customers = await CustomerRepository.instance.listAll();
+    if (!mounted) return;
+    setState(() {
+      _products = products;
+      _customers = customers;
+    });
+    // The repositories' streams only emit on change, so load once (above)
+    // and then follow updates.
+    _productSub = ProductRepository.instance.watchAll().listen((v) {
+      if (mounted) setState(() => _products = v);
+    });
+    _customerSub = CustomerRepository.instance.watchAll().listen((v) {
+      if (mounted) setState(() => _customers = v);
+    });
+    if (_isEdit) {
+      await _loadForEdit();
+    } else {
+      await _restoreDraft();
+      if (widget.openQuickSale) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _openQuickSale();
+        });
+      }
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // App sent to background / closed mid-bill -> keep the bill.
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      _saveDraftNow();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _draftTimer?.cancel();
+    // Leaving the screen (back button etc.) also keeps the bill. Built BEFORE
+    // the controllers are disposed; after a successful save they are empty,
+    // which just clears the stored draft.
+    if (!_isEdit && !_suppressDraft) {
+      unawaited(SaleDraftStore.save(_currentDraft()));
+    }
+    _productSub?.cancel();
+    _customerSub?.cancel();
+    _scrollCtrl.dispose();
+    _customerCtrl.dispose();
+    _customerFocus.dispose();
+    _itemCtrl.dispose();
+    _itemFocus.dispose();
+    _qtyCtrl.dispose();
+    _qtyFocus.dispose();
+    _priceFocus.dispose();
+    _discountFocus.dispose();
+    _paidFocus.dispose();
+    _priceCtrl.dispose();
+    _discountCtrl.dispose();
+    _paidCtrl.dispose();
+    super.dispose();
+  }
+
+  /// Every state change may change the bill, so every one schedules a
+  /// (debounced) draft save — the same coverage as the Kotlin text watchers.
+  @override
+  void setState(VoidCallback fn) {
+    super.setState(fn);
+    _scheduleDraftSave();
+  }
+
+  // ------------------------------------------------------------------ draft
+
+  SaleDraft _currentDraft() => SaleDraft(
+        customer: _customerCtrl.text,
+        isWholesale: _isWholesale,
+        isShopkeeper: _isShopkeeper,
+        discount: _discountCtrl.text,
+        paid: _paidCtrl.text,
+        pendingItemName: _itemCtrl.text,
+        pendingQty: _qtyCtrl.text,
+        pendingPrice: _priceCtrl.text,
+        lines: List.of(_lines),
+      );
+
+  void _scheduleDraftSave() {
+    if (_isEdit || _suppressDraft) return;
+    _draftTimer?.cancel();
+    _draftTimer = Timer(const Duration(milliseconds: 600), _saveDraftNow);
+  }
+
+  Future<void> _saveDraftNow() async {
+    if (_isEdit || _suppressDraft) return;
+    _draftTimer?.cancel();
+    await SaleDraftStore.save(_currentDraft());
+  }
+
+  Future<void> _clearDraft() async {
+    _draftTimer?.cancel();
+    await SaleDraftStore.clear();
+  }
+
+  Future<void> _restoreDraft() async {
+    final draft = await SaleDraftStore.load();
+    if (!mounted) return; // left the screen first: keep the stored draft as-is
+    if (draft == null || _draftRestored) {
+      _suppressDraft = false;
+      return;
+    }
+    _draftRestored = true;
+    try {
+      setState(() {
+        _customerCtrl.text = draft.customer;
+        _isWholesale = draft.isWholesale;
+        _isShopkeeper = draft.isShopkeeper;
+        if (draft.discount.isNotEmpty) _discountCtrl.text = draft.discount;
+        if (draft.paid.isNotEmpty) _paidCtrl.text = draft.paid;
+        // The saved date is intentionally not restored (see SaleDraft) —
+        // the bill is dated "now"; the date picker still allows another day.
+        _lines
+          ..clear()
+          ..addAll(draft.lines);
+        if (draft.pendingItemName.trim().isNotEmpty) {
+          _itemCtrl.text = draft.pendingItemName;
+          final match = _findProductByName(draft.pendingItemName);
+          if (match != null) {
+            _pickedProduct = match;
+            _selectedUnit = defaultUnitFor(match);
+            _lastMainPrice = 0.0;
+          }
+        }
+        if (draft.pendingQty.isNotEmpty) _qtyCtrl.text = draft.pendingQty;
+        if (draft.pendingPrice.isNotEmpty) {
+          _priceCtrl.text = draft.pendingPrice;
+          final pp = _pickedProduct;
+          if (pp != null) {
+            final unit = _selectedUnit.isEmpty ? pp.unit : _selectedUnit;
+            _lastMainPrice = pp.toPrimaryUnitRate(double.tryParse(draft.pendingPrice.trim()) ?? 0.0, unit);
+          }
+        }
+      });
+    } finally {
+      _suppressDraft = false;
+    }
+    if (draft.worthAnnouncing) {
+      _toast(Loc.t('Restored your unsaved sale draft', 'آپ کا غیر محفوظ شدہ سیل ڈرافٹ بحال کر دیا گیا'));
+    }
+  }
+
+  // ------------------------------------------------------- saved-sale edit
+
+  Future<void> _loadForEdit() async {
+    try {
+      final edit = await SaleRepository.instance.loadForEdit(widget.editInvoice!);
+      if (!mounted) return;
+      if (edit == null) {
+        _toast('Ye bill nahi mila');
+        Navigator.of(context).maybePop();
+        return;
+      }
+      final original = <String, double>{};
+      for (final si in edit.items) {
+        Product? product;
+        for (final p in _products) {
+          if (p.barcode == si.barcode) {
+            product = p;
+            break;
+          }
+        }
+        original[si.barcode] = (original[si.barcode] ?? 0) + saleItemSmallestQty(si, product);
+      }
+      setState(() {
+        _originalSale = edit.sale;
+        _originalSmallestByBarcode
+          ..clear()
+          ..addAll(original);
+        _saleDate = DateTime.fromMillisecondsSinceEpoch(edit.sale.createdAt);
+        _customerCtrl.text = edit.customerName;
+        _isWholesale = edit.sale.saleType == 'wholesale';
+        _isShopkeeper = edit.sale.saleType == 'shopkeeper';
+        _discountCtrl.text = edit.sale.discount > 0 ? formatAmount(edit.sale.discount) : '';
+        _paidCtrl.text = formatAmount(edit.sale.paid);
+        _dueDateMillis = edit.sale.dueDate;
+        _paymentMethod = edit.sale.paymentMethod.toLowerCase() == 'bank' ? 'Bank' : 'Cash';
+        // A bill saved with 2+ methods re-opens in split mode.
+        _splitPayments = List<PayEntry>.of(edit.payments);
+        if (_splitPayments.isNotEmpty) {
+          _paidCtrl.text = plainAmount(effectivePaidInput(_splitPayments, 0.0));
+        }
+        _lines
+          ..clear()
+          ..addAll(edit.lines);
+      });
+    } on ArgumentError catch (e) {
+      _toast(e.message.toString());
+    } catch (e) {
+      _toast('Bill load nahi hui: $e');
+    }
+  }
+
+  double get _subtotal => _lines.fold(0.0, (sum, l) => sum + l.amount);
+
+  BillTotals get _totals => DiscountCalculator.compute(
+        _subtotal,
+        double.tryParse(_discountCtrl.text.trim()) ?? 0.0,
+        effectivePaidInput(_splitPayments, double.tryParse(_paidCtrl.text.trim()) ?? 0.0),
+      );
+
+  Product? _findProductByName(String name) {
+    final t = name.trim().toLowerCase();
+    if (t.isEmpty) return null;
+    for (final p in _products) {
+      if (p.name.toLowerCase() == t) return p;
+    }
+    return null;
+  }
+
+  // ------------------------------------------------------------ item entry
+
+  void _onProductPicked(Product p) {
+    setState(() {
+      _pickedProduct = p;
+      _itemCtrl.text = p.name;
+      // Manual default-unit override wins; otherwise the Auto rule
+      // (1-tier: only unit, 3-tier: 2nd unit, 2-tier: 2nd unit except Beverages).
+      _selectedUnit = defaultUnitFor(p);
+      _lastMainPrice = 0.0;
+      _customerRateName = null;
+      _customerRateSkipNote = null;
+      _refillAutoPrice();
+    });
+    // A regular customer's own usual rate replaces the standard one.
+    _suggestCustomerRate();
+    _focus(_qtyFocus);
+    _revealItemEntry(); // item chunte hi unit / qty / rate wala card upar nazar aaye
+    _checkMedicineExpiry(p);
+  }
+
+  /// Hanna Medical Store: expired / 30 din mein expire hone wali dawai par warning (rack/formula bhi).
+  Future<void> _checkMedicineExpiry(Product p) async {
+    String? warning;
+    try {
+      warning = await MedicalBatches.saleWarning(p);
+    } catch (_) {}
+    if (!mounted || _pickedProduct?.barcode != p.barcode) return;
+    if (warning != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(warning),
+        backgroundColor: ThemeManager.palette.red,
+        duration: const Duration(seconds: 4),
+      ));
+    } else if (p.rackLocation.trim().isNotEmpty) {
+      _toast('Rack ${p.rackLocation.trim()}');
+    }
+  }
+
+  void _refillAutoPrice() {
+    final p = _pickedProduct;
+    if (p == null) return;
+    final basePrice = basePriceFor(p, _rateMode);
+    final unit = _selectedUnit.isEmpty ? p.unit : _selectedUnit;
+    final base = _lastMainPrice > 0 ? _lastMainPrice : basePrice;
+    final price = p.fromPrimaryUnitRate(base, unit);
+    _priceCtrl.text = price > 0 ? formatAmount(price) : '';
+  }
+
+  /// Retail sale mein jab miqdar item ki bulkMinQty tak pohnche to rate khud bulkPrice par aa jaye
+  /// (aur kam hone par wapas retail). Cashier ka apna likha rate ya customer ka rate kabhi nahi chhera jata.
+  void _applyBulkRate() {
+    final p = _pickedProduct;
+    if (p == null || _qtyIsAmountMode) return;
+    // Shopkeeper rate pehle hi sab se kam hai: us par bulk rate nahi lagta.
+    if (_isShopkeeper) return;
+    // Retail ka apna bulk rate, wholesale ka apna (alag fields): dono mode mein miqdar par rate khud badle.
+    final bulkPrice = _isWholesale ? p.wholesaleBulkPrice : p.bulkPrice;
+    final bulkMin = _isWholesale ? p.wholesaleBulkMinQty : p.bulkMinQty;
+    final normalPrice = _isWholesale ? p.wholesalePrice : p.salePrice;
+    if (bulkPrice <= 0 || bulkMin <= 0) return;
+    if (_lastMainPrice > 0 || _customerRateName != null) return;
+    final unit = _selectedUnit.isEmpty ? p.unit : _selectedUnit;
+    final qty = double.tryParse(_qtyCtrl.text.trim()) ?? 0.0;
+    final factor = p.smallestUnitFactor();
+    final mainQty = factor > 0 ? p.toSmallestUnits(qty, unit) / factor : qty;
+    final base = mainQty >= bulkMin ? bulkPrice : normalPrice;
+    final price = p.fromPrimaryUnitRate(base, unit);
+    final text = price > 0 ? formatAmount(price) : '';
+    if (_priceCtrl.text != text) _priceCtrl.text = text;
+  }
+
+  void _onPriceChanged(String v) {
+    final p = _pickedProduct;
+    if (p != null) {
+      final unit = _selectedUnit.isEmpty ? p.unit : _selectedUnit;
+      _lastMainPrice = p.toPrimaryUnitRate(double.tryParse(v.trim()) ?? 0.0, unit);
+    }
+    // The shopkeeper typed their own number: it wins over the suggestion.
+    setState(() {
+      _customerRateName = null;
+      _customerRateSkipNote = null;
+    });
+  }
+
+  /// If [customer] has bought the picked item before, use THEIR last rate
+  /// instead of the standard retail/wholesale one so a deliberately
+  /// custom-priced regular doesn't need it re-typed every bill. Silent when
+  /// there is no match, or when the cashier already typed their own rate.
+  /// Mirrors `suggestCustomerRate()`.
+  Future<void> _suggestCustomerRate() async {
+    final product = _pickedProduct;
+    if (product == null) return;
+    final name = _customerCtrl.text.trim();
+    if (name.isEmpty) return;
+    Customer? customer;
+    for (final c in _customers) {
+      if (c.name.toLowerCase() == name.toLowerCase()) {
+        customer = c;
+        break;
+      }
+    }
+    final customerId = customer?.id;
+    if (customer == null || customerId == null) return;
+    final customerDisplayName = customer.name;
+    // Their own typed rate (not one we applied) must never be overwritten.
+    if (_lastMainPrice > 0 && _customerRateName == null) return;
+
+    final priceBefore = _priceCtrl.text;
+    final barcodeAtLookup = product.barcode;
+    final last = await SaleRepository.instance.lastRateForCustomerItem(customerId, barcodeAtLookup);
+    if (last == null || !mounted) return;
+    // Bail if the item or the price changed while we were querying.
+    if (_pickedProduct?.barcode != barcodeAtLookup) return;
+    if (_priceCtrl.text != priceBefore) return;
+
+    final unit = _selectedUnit.isEmpty ? product.unit : _selectedUnit;
+    final outcome = evaluateCustomerRate(product,
+        lastUnitPrice: last.unitPrice, lastUnit: last.unit, chosenUnit: unit, lastSoldAt: last.soldAt);
+    final suggestion = outcome.suggestion;
+    if (suggestion == null) {
+      // Purana rate nahi lagana: item ka apna (naya) rate rehta hai, bas wajah dikha do.
+      final note = switch (outcome.skip) {
+        CustomerRateSkip.rateChanged => Loc.t(
+            "Item's rate changed — new rate applied (not $customerDisplayName's old rate)",
+            'آئٹم کا ریٹ بدل گیا ہے — نیا ریٹ لگا دیا گیا ($customerDisplayName کا پرانا ریٹ نہیں)'),
+        CustomerRateSkip.belowCost => Loc.t(
+            "$customerDisplayName's old rate is now below cost — new rate applied",
+            '$customerDisplayName کا پرانا ریٹ اب لاگت سے کم ہے — نیا ریٹ لگا دیا گیا'),
+        CustomerRateSkip.none => null,
+      };
+      if (note != null) setState(() => _customerRateSkipNote = note);
+      return;
+    }
+    setState(() {
+      _customerRateSkipNote = null;
+      _lastMainPrice = suggestion.primaryRate;
+      _priceCtrl.text = formatAmount(suggestion.priceInChosenUnit);
+      _customerRateName = customerDisplayName;
+    });
+  }
+
+  /// Customer ka rate-type tag ('' = kuch nahi) ho to bill ka rate khud usi par aa jaye (quantity se bila-wasta).
+  /// true = customer ka type set tha aur laga diya gaya (to Sale Type poochne ki zaroorat nahi).
+  bool _applyCustomerRateType() {
+    final name = _customerCtrl.text.trim().toLowerCase();
+    if (name.isEmpty) return false;
+    for (final c in _customers) {
+      if (c.name.toLowerCase() == name) {
+        if (c.rateType.isEmpty) return false;
+        final mode = rateModeFromString(c.rateType);
+        _onSaleTypeChanged(mode == RateMode.shopkeeper ? 2 : (mode == RateMode.wholesale ? 1 : 0));
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Customer chunne ke baad: type set hai to Sale Type dropdown nahi khulta, seedha Item Name par;
+  /// set nahi (ya walk-in) to purani tarah dropdown khulta hai.
+  void _afterCustomerChosen() {
+    if (_applyCustomerRateType()) {
+      FocusManager.instance.primaryFocus?.unfocus();
+      _focus(_itemFocus);
+    } else {
+      _goToSaleTypeFromCustomer();
+    }
+  }
+
+  void _onSaleTypeChanged(int index) {
+    final wholesale = index == 1;
+    final shopkeeper = index == 2;
+    if (wholesale == _isWholesale && shopkeeper == _isShopkeeper) return;
+    setState(() {
+      _isWholesale = wholesale;
+      _isShopkeeper = shopkeeper;
+      _lastMainPrice = 0.0;
+      _customerRateName = null;
+      _customerRateSkipNote = null;
+      _refillAutoPrice();
+      _applyBulkRate();
+      // Lines already in the cart are re-rated too (cost untouched).
+      final result = repriceLinesForSaleType(_lines, _products, isWholesale: wholesale, isShopkeeper: shopkeeper);
+      if (result.changed) {
+        _lines
+          ..clear()
+          ..addAll(result.lines);
+      }
+    });
+    _suggestCustomerRate();
+  }
+
+  void _toggleAmountMode() {
+    setState(() {
+      _qtyIsAmountMode = !_qtyIsAmountMode;
+      _qtyCtrl.clear();
+    });
+  }
+
+  void _addLine() {
+    final name = _itemCtrl.text.trim();
+    final product = _findProductByName(name);
+    final price = double.tryParse(_priceCtrl.text.trim()) ?? 0.0;
+    var qty = double.tryParse(_qtyCtrl.text.trim()) ?? 0.0;
+
+    // Rs mode: the box holds a rupee amount — turn it into a quantity first
+    // so nothing below needs to know which mode was used.
+    if (_qtyIsAmountMode) {
+      if (price <= 0) {
+        _toast('Pehle Rate likhein, phir Rs se qty nikalegi');
+        return;
+      }
+      final amount = double.tryParse(_qtyCtrl.text.trim()) ?? 0.0;
+      final computed = qtyFromAmount(amount, price);
+      if (computed == null) {
+        _toast('Rs amount theek se likhen');
+        return;
+      }
+      qty = computed;
+    }
+
+    if (product == null) {
+      _toast('Ye item product list mein nahi hai');
+      return;
+    }
+    if (qty <= 0) {
+      _toast('Quantity theek se likhen');
+      return;
+    }
+
+    final samePicked = _pickedProduct?.barcode == product.barcode;
+    final unit = (samePicked && _selectedUnit.isNotEmpty) ? _selectedUnit : defaultUnitFor(product);
+    final neededSmallest = product.toSmallestUnits(qty, unit);
+
+    if (!product.isValidSmallestQty(neededSmallest)) {
+      _toast('Qty (${formatQty(qty)} $unit) whole ${product.smallestUnitName()} mein convert nahi hoti');
+      return;
+    }
+
+    // While correcting a line, that line's own qty must not count against
+    // itself, or raising the qty would be wrongly rejected as "stock kam hai".
+    final editIndex = _editingIndex;
+    var alreadyInCartSmallest = 0.0;
+    for (var i = 0; i < _lines.length; i++) {
+      final l = _lines[i];
+      if (l.barcode == product.barcode && i != editIndex) {
+        alreadyInCartSmallest += product.toSmallestUnits(l.qty, l.unit);
+      }
+    }
+    // Editing a SAVED bill: its own original qty is already out of `stock`.
+    final availableForThisAdd =
+        product.stock + (_originalSmallestByBarcode[product.barcode] ?? 0.0) - alreadyInCartSmallest;
+
+    if (availableForThisAdd < neededSmallest) {
+      final left = formatQty(availableForThisAdd < 0 ? 0 : availableForThisAdd);
+      if (!StockPolicy.allowShortStock) {
+        _toast('Stock kam hai — "${product.name}" mein sirf $left ${product.smallestUnitName()} bacha hai');
+        return;
+      }
+      // Setting ON: item add ho jata hai, sirf warning.
+      _toast('Stock kam hai — "${product.name}" mein sirf $left ${product.smallestUnitName()} bacha hai (sale phir bhi hogi, stock minus mein jayega)');
+    }
+
+    final factor = product.smallestUnitFactor();
+    final costPerSmallest = costPerSmallestOf(product.cost, factor);
+    final costForThisLine = costPerSmallest * neededSmallest;
+
+    final newLine = SaleLine(
+      itemName: product.name,
+      barcode: product.barcode,
+      qty: qty,
+      unit: unit,
+      unitPrice: price,
+      cost: costForThisLine,
+      amount: qty * price,
+      // Unit ladder snapshot so a held bill can be recalled later.
+      mainUnit: product.unit,
+      secondaryUnit: product.secondaryUnit,
+      secondaryUnitQty: product.secondaryUnitQty,
+      tertiaryUnit: product.tertiaryUnit,
+      tertiaryUnitQty: product.tertiaryUnitQty,
+    );
+
+    setState(() {
+      // Correcting a line updates it in place instead of adding a duplicate.
+      if (editIndex != null && editIndex >= 0 && editIndex < _lines.length) {
+        _lines[editIndex] = newLine;
+      } else {
+        _lines.add(newLine);
+      }
+      _editingIndex = null;
+      _clearItemEntry();
+    });
+    _focus(_itemFocus);
+    _revealItemEntry(); // line add hone ke baad bhi screen upar, entry card nazar aaye
+  }
+
+  /// Add to Bill ki Enter wali raah: line add karo; na ho paye to wahin focus rakho.
+  void _submitItemEntry() {
+    _addLine();
+    if (_itemCtrl.text.trim().isNotEmpty) {
+      _focus(_qtyCtrl.text.trim().isEmpty ? _qtyFocus : _priceFocus);
+    }
+  }
+
+  /// Quantity ke baad OK: rate pehle se auto-bhara ho (ya customer ka rate) to seedha bill mein add —
+  /// rate par ruke baghair (time bachta hai). Rate khali ho to rate par jao. Rate badalna ho to rate box par tap karen.
+  void _onQtySubmitted() {
+    final qty = double.tryParse(_qtyCtrl.text.trim()) ?? 0.0;
+    final price = double.tryParse(_priceCtrl.text.trim()) ?? 0.0;
+    if (_pickedProduct == null && _itemCtrl.text.trim().isEmpty) {
+      // Line abhi add ho chuki (tez doosra OK): item box par rahen, price par na jayen.
+      _focus(_itemFocus);
+      return;
+    }
+    if (_pickedProduct != null && qty > 0 && price > 0) {
+      _submitItemEntry();
+    } else {
+      _focus(_priceFocus);
+    }
+  }
+
+  void _clearItemEntry() {
+    _itemCtrl.clear();
+    _qtyCtrl.clear();
+    _priceCtrl.clear();
+    _pickedProduct = null;
+    _selectedUnit = '';
+    _lastMainPrice = 0.0;
+    _qtyIsAmountMode = false;
+    _customerRateName = null;
+    _customerRateSkipNote = null;
+  }
+
+  /// Loads a billed line back into the entry fields so a mistake can be
+  /// corrected instead of deleting and retyping the line. Mirrors `editLine()`.
+  void _editLine(int index) {
+    if (index < 0 || index >= _lines.length) return;
+    final line = _lines[index];
+    Product? product;
+    for (final p in _products) {
+      if (p.barcode == line.barcode) {
+        product = p;
+        break;
+      }
+    }
+    if (product == null) {
+      for (final p in _products) {
+        if (p.name.toLowerCase() == line.itemName.toLowerCase()) {
+          product = p;
+          break;
+        }
+      }
+    }
+    final Product? prod = product; // final copy: stays promotable in the closure
+    setState(() {
+      _editingIndex = index;
+      _pickedProduct = prod; // null if the product was renamed/removed
+      _itemCtrl.text = prod?.name ?? line.itemName;
+      final choices = prod != null ? saleUnitChoices(prod) : <String>[line.unit];
+      _selectedUnit = choices.contains(line.unit) ? line.unit : choices.first;
+      _qtyCtrl.text = formatQty(line.qty);
+      _qtyIsAmountMode = false;
+      _customerRateName = null;
+      _customerRateSkipNote = null;
+      _priceCtrl.text = line.unitPrice == line.unitPrice.truncateToDouble()
+          ? line.unitPrice.toInt().toString()
+          : line.unitPrice.toString();
+      // So switching the unit re-converts THIS line's own rate.
+      _lastMainPrice = prod != null ? prod.toPrimaryUnitRate(line.unitPrice, _selectedUnit) : 0.0;
+    });
+    if (_scrollCtrl.hasClients) {
+      _scrollCtrl.animateTo(0, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+    }
+    _focus(_qtyFocus);
+  }
+
+  void _cancelLineEdit() {
+    setState(() {
+      _editingIndex = null;
+      _clearItemEntry();
+    });
+  }
+
+  void _removeLine(int index) {
+    setState(() {
+      // Keep an in-progress edit pointed at the right line.
+      final editing = _editingIndex;
+      if (editing != null) {
+        if (editing == index) {
+          _editingIndex = null;
+          _clearItemEntry();
+        } else if (editing > index) {
+          _editingIndex = editing - 1;
+        }
+      }
+      _lines.removeAt(index);
+    });
+  }
+
+  void _clearAll() {
+    _loadPartyRows(); // bill ke baad customers ka baqaya taza
+    setState(() {
+      _lines.clear();
+      _customerCtrl.clear();
+      _discountCtrl.clear();
+      _paidCtrl.clear();
+      _dueDateMillis = 0;
+      _splitPayments = [];
+      _paymentMethod = 'Cash';
+      _saleDate = DateTime.now();
+      _isWholesale = false;
+      _isShopkeeper = false;
+      _editingIndex = null;
+      _clearItemEntry();
+    });
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _saleDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+    if (picked != null) setState(() => _saleDate = picked);
+  }
+
+  // ------------------------------------------------------------------ save
+
+  Future<void> _save({bool overrideCreditLimit = false, bool skipDuplicateCheck = false}) async {
+    if (_saveEntered || _saving) return;
+    _saveEntered = true;
+    try {
+      await _saveImpl(overrideCreditLimit: overrideCreditLimit, skipDuplicateCheck: skipDuplicateCheck);
+    } finally {
+      _saveEntered = false;
+    }
+  }
+
+  Future<void> _saveImpl({bool overrideCreditLimit = false, bool skipDuplicateCheck = false}) async {
+    if (_lines.isEmpty) {
+      _toast('Kam az kam ek item add karen');
+      return;
+    }
+    if (_isEdit && _originalSale == null) return; // bill still loading
+
+    final totals = _totals;
+    if (totals.due > 0.009 && _customerCtrl.text.trim().isEmpty) {
+      _toast('Due amount ke liye Customer zaroori hai');
+      return;
+    }
+
+    // Double-bill alert. Skipped on the credit-limit retry (the cashier has
+    // already confirmed this exact bill once), like Kotlin's override path.
+    if (!skipDuplicateCheck) {
+      final dup = await SaleRepository.instance.findDuplicateSale(
+        customerName: _customerCtrl.text.trim(),
+        total: totals.total,
+        saleDateMillis: _saleDate.millisecondsSinceEpoch,
+        excludeInvoice: widget.editInvoice,
+      );
+      if (!mounted) return;
+      if (dup != null && !await _confirmDuplicate(dup, totals.total)) return;
+    }
+
+    // Cost guard: kisi line ki cost uski sale amount se bohat zyada ho to bill ka profit bigad jayega.
+    if (!skipDuplicateCheck) {
+      final suspects = [for (final l in _lines) if (isSuspiciousLineCost(l.cost, l.amount)) l];
+      if (suspects.isNotEmpty && !await _confirmSuspectCost(suspects)) return;
+    }
+
+    // Udhaar se pehle: is customer ka purana baqi late hai ya wada toota? (sirf naya udhaar bill; warning,
+    // aur "sirf admin/manager" policy ON ho to cashier ke liye rok.)
+    if (!skipDuplicateCheck && !_isEdit && totals.due > 0.009) {
+      final risk = await loadCreditRiskByName(_customerCtrl.text.trim());
+      if (!mounted) return;
+      if (risk.risky && !await _confirmCreditRisk(_customerCtrl.text.trim(), risk)) return;
+    }
+
+    // Snapshot for the bill preview — _clearAll() wipes the screen after save.
+    final previewLines = List<SaleLine>.of(_lines);
+    final previewCustomer = _customerCtrl.text.trim();
+    final previewDate = _saleDate;
+    final previewMethod = _paymentLabel(totals.paid);
+
+    setState(() => _saving = true);
+    final stockWarnings = <String>[];
+    try {
+      final invoice = await SaleRepository.instance.saveSale(
+        lines: _lines,
+        customerName: _customerCtrl.text.trim(),
+        discountInput: double.tryParse(_discountCtrl.text.trim()) ?? 0.0,
+        paidInput: double.tryParse(_paidCtrl.text.trim()) ?? 0.0,
+        saleType: rateModeName(_rateMode),
+        saleDateMillis: _saleDate.millisecondsSinceEpoch,
+        paymentMethod: _paymentMethod,
+        payments: _splitPayments,
+        overrideCreditLimit: overrideCreditLimit,
+        editInvoice: widget.editInvoice,
+        stockWarnings: stockWarnings,
+        // Sirf udhaar bill par date lagti hai; poora paid ho to 0.
+        dueDateMillis: totals.due > 0.009 ? _effectiveDueMillis() : 0,
+      );
+      if (!mounted) return;
+      // Kotlin SaleSaveSuccess: har stock warning alag toast (save phir bhi ho chuka hai).
+      for (final w in stockWarnings) {
+        _toast(w);
+      }
+      if (_isEdit) {
+        _toast(Loc.t('Sale updated: $invoice', 'سیل اپ ڈیٹ ہو گئی: $invoice'));
+        Navigator.of(context).pop(true);
+        return;
+      }
+      // Saved: the draft must go NOW (not after the debounce) or a kill in
+      // the next second would bring the already-saved bill back.
+      await _clearDraft();
+      _toast('Sale saved: $invoice');
+      final shownTotals = totals;
+      _clearAll();
+      await _showBillPreview(
+        invoice: invoice,
+        date: previewDate,
+        customer: previewCustomer,
+        lines: previewLines,
+        subtotal: shownTotals.subtotal,
+        discount: shownTotals.discount,
+        total: shownTotals.total,
+        paid: shownTotals.paid,
+        paymentLabel: previewMethod,
+        showNew: true,
+      );
+    } on SaleCreditLimitException catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      if (await _confirmCreditLimit(e) == true && mounted) {
+        await _saveImpl(overrideCreditLimit: true, skipDuplicateCheck: true);
+      }
+      return;
+    } on SaleStockException catch (e) {
+      _toast(e.message);
+    } on ArgumentError catch (e) {
+      _toast(e.message.toString());
+    } catch (e) {
+      _toast('Could not save sale: $e');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  // ------------------------------------------------------- Return / Delete
+
+  Future<bool> _confirm(String title, String message, String okLabel, {Color? okColor}) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(Loc.t('Cancel', 'منسوخ'))),
+          FilledButton(
+            style: okColor == null ? null : FilledButton.styleFrom(backgroundColor: okColor),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(okLabel),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
+  /// Sale return ki receipt: customer ko dikhane ke liye ke maal wapas hua aur balance kam hua.
+  Future<void> _showReturnReceipt(
+    SaleReturnResult res,
+    List<({String name, double qty, String unit, double rate, double amount})> lines,
+  ) async {
+    final repo = UserRepository.instance;
+    final text = buildSaleReturnText(
+      shopName: (await repo.getSetting('shop_name')) ?? '',
+      shopOwner: (await repo.getSetting('shop_owner')) ?? '',
+      shopPhone: (await repo.getSetting('shop_phone')) ?? '',
+      invoice: res.invoice,
+      date: DateTime.now(),
+      customer: res.customerName.isEmpty ? _customerCtrl.text.trim() : res.customerName,
+      lines: lines,
+      returnedTotal: res.returnedTotal,
+      balanceBefore: res.customerBalanceBefore,
+      balanceAfter: res.customerBalanceAfter,
+    );
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(Loc.t('Return receipt', 'واپسی کی رسید')),
+        content: SingleChildScrollView(
+          child: Container(
+            width: double.maxFinite,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(color: ThemeManager.palette.bg, borderRadius: BorderRadius.circular(8)),
+            child: Text(text, style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
+          ),
+        ),
+        actions: [
+          TextButton.icon(
+            icon: const Icon(Icons.copy, size: 18),
+            label: Text(Loc.t('Copy', 'کاپی')),
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: text));
+              if (ctx.mounted) Navigator.pop(ctx);
+              _toast(Loc.t('Receipt copied', 'رسید کاپی ہو گئی'));
+            },
+          ),
+          FilledButton.icon(
+            icon: const Icon(Icons.share, size: 18),
+            label: Text(Loc.t('Share', 'شیئر')),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await Share.share(text);
+              } catch (_) {
+                await Clipboard.setData(ClipboardData(text: text));
+                _toast(Loc.t('Receipt copied', 'رسید کاپی ہو گئی'));
+              }
+            },
+          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(Loc.t('Close', 'بند کریں'))),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _returnSale() async {
+    final invoice = widget.editInvoice;
+    if (invoice == null) return;
+    final ok = await _confirm(
+      Loc.t('Return Sale', 'سیل واپس کریں'),
+      Loc.t(
+        'The items go back to stock, the customer balance is reversed and the sale is marked Returned. Continue?',
+        'آئٹمز واپس اسٹاک میں جائیں گے، کسٹمر بیلنس واپس ہوگا اور سیل "واپس" نشان زد ہوگی۔ جاری رکھیں؟',
+      ),
+      Loc.t('Return', 'واپس'),
+      okColor: ThemeManager.palette.amber,
+    );
+    if (!ok || !mounted) return;
+    // Receipt ke liye lines (bill pop hone se pehle).
+    final returnedLines = [
+      for (final l in _lines) (name: l.itemName, qty: l.qty, unit: l.unit, rate: l.unitPrice, amount: l.amount),
+    ];
+    setState(() => _saving = true);
+    try {
+      final res = await SaleRepository.instance.returnSale(invoice);
+      if (!mounted) return;
+      _toast(Loc.t('Sale returned', 'سیل واپس ہو گئی'));
+      await _showReturnReceipt(res, returnedLines);
+      if (mounted) Navigator.of(context).pop(true);
+    } on ArgumentError catch (e) {
+      _toast(e.message.toString());
+    } catch (e) {
+      _toast('Return nahi ho saki: $e');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _deleteSale() async {
+    final invoice = widget.editInvoice;
+    if (invoice == null) return;
+    final ok = await _confirm(
+      Loc.t('Delete Sale', 'سیل حذف کریں'),
+      Loc.t(
+        'This will remove the bill and reverse its stock and customer balance effect. Continue?',
+        'یہ بل حذف کر دے گا اور اس کا اسٹاک اور کسٹمر بیلنس پر اثر واپس کر دے گا۔ جاری رکھیں؟',
+      ),
+      Loc.t('Delete', 'حذف کریں'),
+      okColor: ThemeManager.palette.red,
+    );
+    if (!ok || !mounted) return;
+    setState(() => _saving = true);
+    try {
+      await SaleRepository.instance.deleteSale(invoice);
+      if (!mounted) return;
+      _toast(Loc.t('Sale deleted', 'سیل حذف ہو گئی'));
+      Navigator.of(context).pop(true);
+    } on ArgumentError catch (e) {
+      _toast(e.message.toString());
+    } catch (e) {
+      _toast('Delete nahi ho saki: $e');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  // ------------------------------------------------------------------ Print
+
+  /// Print / Share entry (overflow menu in Kotlin). Only a SAVED bill has an
+  /// invoice number, so a new unsaved sale is asked to be saved first.
+  Future<void> _printCurrent() async {
+    final invoice = widget.editInvoice;
+    if (invoice == null) {
+      _toast(Loc.t('Save the sale first', 'پہلے سیل محفوظ کریں'));
+      return;
+    }
+    if (_lines.isEmpty) return;
+    final t = _totals;
+    await _showBillPreview(
+      invoice: invoice,
+      date: _saleDate,
+      customer: _customerCtrl.text.trim(),
+      lines: List<SaleLine>.of(_lines),
+      subtotal: t.subtotal,
+      discount: t.discount,
+      total: t.total,
+      paid: t.paid,
+      paymentLabel: _paymentLabel(t.paid),
+    );
+  }
+
+  /// Bill Preview screen (print / WhatsApp / copy) — after a save and from Print.
+  Future<void> _showBillPreview({
+    required String invoice,
+    required DateTime date,
+    required String customer,
+    required List<SaleLine> lines,
+    required double subtotal,
+    required double discount,
+    required double total,
+    required double paid,
+    required String paymentLabel,
+    bool showNew = false,
+  }) async {
+    if (!mounted) return;
+    await BillPreviewScreen.open(
+      context,
+      BillDoc(
+        isPurchase: false,
+        ref: invoice,
+        date: date,
+        partyName: customer,
+        items: [
+          for (final l in lines) BillItem(name: l.itemName, qty: l.qty, unit: l.unit, rate: l.unitPrice, amount: l.amount),
+        ],
+        subtotal: subtotal,
+        discount: discount,
+        total: total,
+        paid: paid,
+        paymentMethod: paymentLabel,
+      ),
+      showNewBill: showNew,
+      justSaved: showNew,
+    );
+  }
+
+  /// Purana baqi late / wada toota: udhaar dene se pehle poochho. true = phir bhi udhaar do.
+  Future<bool> _confirmCreditRisk(String name, CreditRisk r) async {
+    final lines = <String>[
+      if (r.lateAmount > 0.009)
+        Loc.t('Rs ${formatQty(r.lateAmount)} is late (oldest by ${r.maxDaysLate} days).',
+            'Rs ${formatQty(r.lateAmount)} late hai (sab se purana ${r.maxDaysLate} din).'),
+      if (r.promiseBroken) Loc.t('Last payment promise was broken.', 'Pichla payment ka wada toot gaya.'),
+    ];
+    final mayOverride = await CreditOverridePolicy.currentUserMayOverride();
+    if (!mounted) return false;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(Loc.t('Old dues pending — $name', 'Purana baqi — $name')),
+        content: Text('${lines.join('\n')}\n\n${mayOverride ? Loc.t('Give more credit anyway?', 'Phir bhi udhaar dein?') : Loc.t('Only admin or manager can give more credit to this customer.', 'Is customer ko mazeed udhaar sirf admin ya manager de sakta hai.')}'),
+        actions: mayOverride
+            ? [
+                TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(Loc.t('Cancel', 'منسوخ'))),
+                FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: ThemeManager.palette.red),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: Text(Loc.t('Give credit', 'Udhaar dein')),
+                ),
+              ]
+            : [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('OK'))],
+      ),
+    );
+    return ok == true;
+  }
+
+  /// "Save Anyway?" prompt — a shopkeeper can knowingly let a trusted customer
+  /// go over their limit, so this asks instead of hard-blocking.
+  Future<bool?> _confirmCreditLimit(SaleCreditLimitException e) async {
+    if (!await CreditOverridePolicy.currentUserMayOverride()) {
+      if (!mounted) return false;
+      return showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(Loc.t('Credit Limit Exceeded', 'کریڈٹ لیمٹ سے تجاوز')),
+          content: Text(
+            '${e.customerName} ki credit limit Rs.${formatQty(e.creditLimit)} hai. '
+            'Ye bill save karne ke baad balance Rs.${formatQty(e.projectedBalance)} ho jayega.\n\n'
+            'Is bill ko sirf admin ya manager "Save Anyway" kar sakta hai.',
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('OK'))],
+        ),
+      );
+    }
+    if (!mounted) return false;
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(Loc.t('Credit Limit Exceeded', 'کریڈٹ لیمٹ سے تجاوز')),
+        content: Text(
+          '${e.customerName} ki credit limit Rs.${formatQty(e.creditLimit)} hai. '
+          'Ye bill save karne ke baad balance Rs.${formatQty(e.projectedBalance)} ho jayega.\n\n'
+          'Phir bhi save karen?',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(Loc.t('Cancel', 'منسوخ'))),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: ThemeManager.palette.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(Loc.t('Save Anyway', 'پھر بھی محفوظ کریں')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------- Quick Sale
+
+  Future<void> _openQuickSale() async {
+    final top = await SaleRepository.instance.topProductNames();
+    if (!mounted) return;
+    final request = await showQuickSaleDialog(
+      context,
+      products: _products,
+      customers: _customers,
+      topNames: top,
+    );
+    if (request == null || !mounted) return;
+    await _submitQuickSale(request);
+  }
+
+  Future<void> _submitQuickSale(QuickSaleRequest r, {bool overrideCreditLimit = false}) async {
+    try {
+      final result = await SaleRepository.instance.saveQuickSale(
+        product: r.product,
+        qty: r.qty,
+        price: r.price,
+        unit: r.unit,
+        customerName: r.customerName,
+        overrideCreditLimit: overrideCreditLimit,
+      );
+      HapticFeedback.mediumImpact(); // Kotlin QuickSaleSuccess -> vibrateShort()
+      _toast(result.isCredit
+          ? 'Quick Sale (credit) saved: ${result.invoice}'
+          : 'Quick Sale saved: ${result.invoice}');
+      final shortNeeded = r.product.toSmallestUnits(r.qty, r.unit);
+      if (shortNeeded > r.product.stock) {
+        _toast(StockPolicy.shortWarning(r.product.name, r.product.stock, shortNeeded, r.product.smallestUnitName()));
+      }
+      // Credit quick sale: normal sale ki tarah poori slip (Prev / Net Balance + shukriya) kholo.
+      if (result.isCredit && mounted) {
+        final amount = (r.qty * r.price).roundToDouble();
+        await _showBillPreview(
+          invoice: result.invoice,
+          date: DateTime.now(),
+          customer: r.customerName.trim(),
+          lines: [
+            SaleLine(
+              itemName: r.product.name,
+              barcode: r.product.barcode,
+              qty: r.qty,
+              unit: r.unit,
+              unitPrice: r.price,
+              cost: 0.0,
+              amount: amount,
+            ),
+          ],
+          subtotal: amount,
+          discount: 0.0,
+          total: amount,
+          paid: 0.0,
+          paymentLabel: 'Credit',
+          showNew: true,
+        );
+      }
+    } on SaleCreditLimitException catch (e) {
+      if (!mounted) return;
+      if (await _confirmCreditLimit(e) == true && mounted) {
+        await _submitQuickSale(r, overrideCreditLimit: true);
+      }
+    } on SaleStockException catch (e) {
+      _toast(e.message);
+    } on ArgumentError catch (e) {
+      _toast(e.message.toString());
+    } catch (e) {
+      _toast('Quick Sale save nahi hui: $e');
+    }
+  }
+
+  // ---------------------------------------------------------- Hold / Recall
+
+  Future<void> _holdBill() async {
+    if (_lines.isEmpty) {
+      _toast('Add items pehle, phir hold karen');
+      return;
+    }
+    final payload = encodeHold(HeldSaleDraft(
+      customerName: _customerCtrl.text.trim(),
+      isWholesale: _isWholesale,
+        isShopkeeper: _isShopkeeper,
+      isCash: _customerCtrl.text.trim().isEmpty,
+      discountText: _discountCtrl.text.trim(),
+      lines: List.of(_lines),
+    ));
+    try {
+      await SaleRepository.instance.holdBill(payload);
+      if (!mounted) return;
+      _toast('Bill hold ho gayi');
+      _clearAll();
+    } catch (e) {
+      _toast('Hold nahi ho saki: $e');
+    }
+  }
+
+  Future<void> _openRecall() async {
+    final held = await SaleRepository.instance.heldBills();
+    if (!mounted) return;
+    final choice = await showHeldBillsDialog(context, held);
+    if (choice == null || !mounted) return;
+
+    if (choice.action == HeldBillAction.delete) {
+      await SaleRepository.instance.deleteHeldBill(choice.bill);
+      _toast('Held bill hata di');
+      return;
+    }
+
+    // Recall replaces the bill on screen (same as Android) — don't silently
+    // throw away items the cashier is in the middle of entering.
+    if (_lines.isNotEmpty) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(Loc.t('Recall', 'ریکال')),
+          content: Text(Loc.t('Current bill items will be replaced. Recall?', 'موجودہ بل کی آئٹمز بدل جائیں گی۔ ریکال کریں؟')),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(Loc.t('Cancel', 'منسوخ'))),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(Loc.t('Recall', 'ریکال'))),
+          ],
+        ),
+      );
+      if (ok != true || !mounted) return;
+    }
+
+    final draft = decodeHold(choice.bill.payload);
+    setState(() {
+      _editingIndex = null;
+      _clearItemEntry();
+      _customerCtrl.text = draft.customerName;
+      _isWholesale = draft.isWholesale;
+        _isShopkeeper = draft.isShopkeeper;
+      _discountCtrl.text = draft.discountText;
+      _paidCtrl.clear();
+      _splitPayments = [];
+      _lines
+        ..clear()
+        ..addAll(draft.lines);
+    });
+    await SaleRepository.instance.deleteHeldBill(choice.bill);
+  }
+
+  // ------------------------------------------------- Split payment / extras
+
+  /// Label shown on the bill ("Cash", "Cash + Bank", "Credit").
+  // ---- Due date (udhaar bill par payment ki date) ----
+  /// Chune hue customer ki default muddat (din), 0 = nahi.
+  int _customerDueDays() {
+    final name = _customerCtrl.text.trim().toLowerCase();
+    if (name.isEmpty) return 0;
+    for (final c in _customers) {
+      if (c.name.toLowerCase() == name) return c.dueDays;
+    }
+    return 0;
+  }
+
+  Future<void> _loadShopDueDays() async {
+    try {
+      final raw = await UserRepository.instance.getSetting(kDueDaysSetting);
+      if (mounted) setState(() => _shopDueDays = parseShopDueDays(raw));
+    } catch (_) {}
+  }
+
+  /// Haath se chuni date; na ho aur naya bill ho to customer ki default muddat, wo bhi na ho to dukaan ki
+  /// default muddat (bill date + din). Is se udhaar bill kabhi "date nahi" ban kar reminders se bahar nahi rehta.
+  int _effectiveDueMillis() {
+    if (_dueDateMillis > 0) return _dueDateMillis;
+    final days = _isEdit ? 0 : effectiveDueDays(customerDays: _customerDueDays(), shopDays: _shopDueDays);
+    if (days <= 0) return 0;
+    final base = DateTime(_saleDate.year, _saleDate.month, _saleDate.day);
+    return base.add(Duration(days: days)).millisecondsSinceEpoch;
+  }
+
+  Future<void> _pickDueDate() async {
+    final base = DateTime(_saleDate.year, _saleDate.month, _saleDate.day);
+    final initial = _dueDateMillis > 0 ? DateTime.fromMillisecondsSinceEpoch(_dueDateMillis) : base.add(const Duration(days: 7));
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial.isBefore(base) ? base : initial,
+      firstDate: base,
+      lastDate: base.add(const Duration(days: 3650)),
+      helpText: 'Payment ki date',
+    );
+    if (picked != null && mounted) {
+      setState(() => _dueDateMillis = DateTime(picked.year, picked.month, picked.day).millisecondsSinceEpoch);
+    }
+  }
+
+  Widget _buildDueDateRow() {
+    final p = ThemeManager.palette;
+    final shownMillis = _effectiveDueMillis();
+    final has = shownMillis > 0;
+    final auto = _dueDateMillis == 0 && has;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Wrap(spacing: 6, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
+        Text('📅 ${Loc.t('Due date', 'ادائیگی کی تاریخ')}:',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: p.textMuted)),
+        ActionChip(
+          label: Text(has
+              ? '${DateFormat('dd MMM yyyy').format(DateTime.fromMillisecondsSinceEpoch(shownMillis))}${auto ? ' (auto)' : ''}'
+              : Loc.t('Set date', 'تاریخ چنیں')),
+          onPressed: _pickDueDate,
+        ),
+      ]),
+    );
+  }
+
+  String _paymentLabel(double paid) {
+    final l = paymentMethodLabel(paid: paid, payments: _splitPayments, singleMethod: _paymentMethod);
+    return l == 'credit' ? 'Credit' : l;
+  }
+
+  Future<bool> _confirmSuspectCost(List<SaleLine> suspects) async {
+    final showFigures = Session.isAdminOrManager;
+    final names = suspects.map((l) => l.itemName).take(5).join(', ');
+    final detail = showFigures
+        ? suspects
+            .take(5)
+            .map((l) => '${l.itemName}: cost Rs ${l.cost.toStringAsFixed(0)}, sale Rs ${l.amount.toStringAsFixed(0)}')
+            .join('\n')
+        : names;
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(Loc.t('Cost shak wali hai', 'لاگت مشکوک ہے')),
+        content: Text(Loc.t(
+          'In items ki cost sale amount se bohat zyada lag rahi hai:\n$detail\n\n'
+              'Is se bill ka profit bohat minus aayega. Product ki unit/cost check karen. Phir bhi save karen?'
+              '${showFigures ? '\n\n"Cost theek karo" = item ki cost aakhri purchase rate par.' : ''}',
+          'ان آئٹمز کی لاگت سیل رقم سے بہت زیادہ لگ رہی ہے:\n$detail\n\n'
+              'اس سے بل کا منافع بہت منفی آئے گا۔ پروڈکٹ کی یونٹ/لاگت چیک کریں۔ پھر بھی محفوظ کریں؟'
+              '${showFigures ? '\n\n"لاگت درست کریں" = آئٹم کی لاگت آخری خریداری ریٹ پر۔' : ''}',
+        )),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, 'back'), child: Text(Loc.t('Go Back', 'واپس جائیں'))),
+          if (showFigures)
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'fix'),
+              child: Text(Loc.t('Cost theek karo', 'لاگت درست کریں')),
+            ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, 'save'),
+            child: Text(Loc.t('Save Anyway', 'پھر بھی محفوظ کریں')),
+          ),
+        ],
+      ),
+    );
+    if (choice == 'save') return true;
+    if (choice != 'fix' || !mounted) return false;
+    final fixedCount = await _fixSuspectCosts(suspects);
+    if (!mounted) return false;
+    if (fixedCount == 0) {
+      _toast('Aakhri purchase rate nahi mila (ya wo bhi sale se zyada hai) — product ki cost / unit khud check karen');
+      return false;
+    }
+    final still = [for (final l in _lines) if (isSuspiciousLineCost(l.cost, l.amount)) l];
+    if (still.isEmpty) {
+      _toast('Cost theek ho gayi — bill save ho raha hai');
+      return true;
+    }
+    return _confirmSuspectCost(still);
+  }
+
+  /// Shak wali lines ke products ki cost aakhri purchase rate par, aur cart ki lines ki cost dobara.
+  /// Kitne products theek hue wapas deta hai.
+  Future<int> _fixSuspectCosts(List<SaleLine> suspects) async {
+    final repo = CostCheckRepository.instance;
+    final fixed = <String, Product>{};
+    for (final barcode in {for (final l in suspects) l.barcode}) {
+      final p = await ProductRepository.instance.find(barcode);
+      if (p == null) continue;
+      final rate = await repo.lastPurchaseRate(p);
+      if (rate == null) continue;
+      // Naye rate par bhi line shak wali rahe to masla cost nahi (unit/rate) — chhor do.
+      final perSmallest = costPerSmallestOf(rate, p.smallestUnitFactor());
+      final stillBad = suspects.any((l) =>
+          l.barcode == barcode && isSuspiciousLineCost(perSmallest * p.toSmallestUnits(l.qty, l.unit), l.amount));
+      if (stillBad) continue;
+      fixed[barcode] = p.copyWith(cost: rate);
+    }
+    if (fixed.isEmpty) return 0;
+    try {
+      await repo.applyCosts({for (final e in fixed.entries) e.key: e.value.cost});
+    } catch (e) {
+      _toast(e.toString());
+      return 0;
+    }
+    if (!mounted) return fixed.length;
+    setState(() {
+      for (var i = 0; i < _lines.length; i++) {
+        final l = _lines[i];
+        final p = fixed[l.barcode];
+        if (p == null) continue;
+        final cost = costPerSmallestOf(p.cost, p.smallestUnitFactor()) * p.toSmallestUnits(l.qty, l.unit);
+        _lines[i] = l.copyWith(cost: cost);
+      }
+    });
+    return fixed.length;
+  }
+
+  Future<bool> _confirmDuplicate(Sale dup, double total) async {
+    final fmt = DateFormat('dd MMM yyyy, hh:mm a');
+    final who = _customerCtrl.text.trim().isEmpty ? 'Walk-in' : _customerCtrl.text.trim();
+    final when = fmt.format(DateTime.fromMillisecondsSinceEpoch(dup.createdAt));
+    final amount = total.toStringAsFixed(0);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(Loc.t('Possible Duplicate Bill', 'ممکنہ ڈپلیکیٹ بل')),
+        content: Text(Loc.t(
+          'A sale for $who of Rs $amount was already saved on $when (Invoice #${dup.invoice}).\n\nSave this one anyway?',
+          '$who کے لیے Rs $amount کی سیل پہلے ہی $when کو محفوظ ہو چکی ہے (انوائس نمبر ${dup.invoice})۔\n\nکیا پھر بھی محفوظ کریں؟',
+        )),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(Loc.t('Cancel', 'منسوخ کریں'))),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(Loc.t('Save Anyway', 'پھر بھی محفوظ کریں')),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
+  void _applySplitPayments(List<PayEntry> entries) {
+    setState(() {
+      _splitPayments = entries;
+      _paidCtrl.text = plainAmount(effectivePaidInput(entries, 0.0));
+    });
+  }
+
+  void _clearSplitPayments() {
+    setState(() => _splitPayments = []);
+  }
+
+  /// Rs 300 Cash + Rs 200 Bank on one bill. Mirrors openSplitPaymentDialog().
+  Future<void> _openSplitPaymentDialog() async {
+    const methods = ['Cash', 'Bank'];
+    final rows = <({String method, TextEditingController amount})>[];
+    void addRow(String method, double amount) {
+      rows.add((method: method, amount: TextEditingController(text: amount > 0 ? plainAmount(amount) : '')));
+    }
+
+    // Rows keep their method in a parallel mutable list (records are immutable).
+    final rowMethods = <String>[];
+    void addRowM(String method, double amount) {
+      addRow(method, amount);
+      rowMethods.add(method);
+    }
+
+    if (_splitPayments.isNotEmpty) {
+      for (final p in _splitPayments) {
+        addRowM(p.method, p.amount);
+      }
+    } else {
+      // Two blank rows nudge the cashier toward actually splitting.
+      addRowM('Cash', 0);
+      addRowM('Bank', 0);
+    }
+    final billTotal = _totals.total;
+    final hadSplit = _splitPayments.isNotEmpty;
+
+    final result = await showDialog<List<PayEntry>?>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: Text(Loc.t('Split Payment', 'ادائیگی تقسیم کریں')),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  Loc.t('Bill Total: Rs ${formatRound(billTotal)}', 'بل کل: Rs ${formatRound(billTotal)}'),
+                  style: TextStyle(fontSize: 13, color: ThemeManager.palette.textMuted),
+                ),
+                const SizedBox(height: 8),
+                for (var i = 0; i < rows.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: DropdownButton<String>(
+                            isExpanded: true,
+                            value: rowMethods[i],
+                            items: [for (final m in methods) DropdownMenuItem(value: m, child: Text(m))],
+                            onChanged: (v) => setD(() => rowMethods[i] = v ?? 'Cash'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: rows[i].amount,
+                            textAlign: TextAlign.end,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            decoration: const InputDecoration(hintText: '0', isDense: true),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: Loc.t('Remove', 'ہٹائیں'),
+                          icon: Icon(Icons.close, color: ThemeManager.palette.red, size: 20),
+                          onPressed: () => setD(() {
+                            rows[i].amount.dispose();
+                            rows.removeAt(i);
+                            rowMethods.removeAt(i);
+                          }),
+                        ),
+                      ],
+                    ),
+                  ),
+                TextButton(
+                  onPressed: () => setD(() => addRowM('Cash', 0)),
+                  child: Text(Loc.t('+ Add another method', '+ ایک اور طریقہ شامل کریں')),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            if (hadSplit)
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, const <PayEntry>[]),
+                child: Text(Loc.t('Remove Split', 'تقسیم ہٹائیں')),
+              ),
+            TextButton(onPressed: () => Navigator.pop(ctx, null), child: Text(Loc.t('Cancel', 'منسوخ کریں'))),
+            FilledButton(
+              onPressed: () {
+                final entries = <PayEntry>[];
+                for (var i = 0; i < rows.length; i++) {
+                  final amt = parseMoneyOrWarn(ctx, rows[i].amount.text, 'Payment Amount', 'ادائیگی کی رقم');
+                  if (amt == null) return; // invalid text: warned, keep dialog open
+                  if (amt > 0.009) entries.add(PayEntry(rowMethods[i], amt));
+                }
+                if (entries.isEmpty) {
+                  _toast(Loc.t('Kam az kam ek payment amount daalen', 'کم از کم ایک ادائیگی کی رقم درج کریں'));
+                  return;
+                }
+                Navigator.pop(ctx, entries);
+              },
+              child: Text(Loc.t('Apply', 'لاگو کریں')),
+            ),
+          ],
+        ),
+      ),
+    );
+    for (final r in rows) {
+      r.amount.dispose();
+    }
+    if (result == null || !mounted) return;
+    if (result.isEmpty) {
+      _clearSplitPayments();
+    } else {
+      _applySplitPayments(result);
+    }
+  }
+
+  /// Full "New Customer" form (Name*, Phone, Credit Limit, Opening Balance)
+  /// so a customer added mid-sale isn't missing the details normally filled
+  /// in from the Customers screen. Mirrors promptAddCustomer().
+  Future<void> _promptAddCustomer() async {
+    final nameCtrl = TextEditingController(text: _customerCtrl.text.trim());
+    final phoneCtrl = TextEditingController();
+    final limitCtrl = TextEditingController();
+    final openingCtrl = TextEditingController();
+    const decimal = TextInputType.numberWithOptions(decimal: true);
+
+    Widget field(String label, TextEditingController c, {TextInputType? type, String? hint}) => Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: TextField(
+            controller: c,
+            keyboardType: type,
+            decoration: InputDecoration(
+              labelText: label,
+              hintText: hint,
+              border: const OutlineInputBorder(),
+              isDense: true,
+              // Phone field: contacts se chunne ka button (naam khali ho to woh bhi bhar jata hai).
+              suffixIcon: type == TextInputType.phone ? ContactPickButton(phone: c, name: nameCtrl) : null,
+            ),
+          ),
+        );
+
+    final added = await showDialog<String?>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(Loc.t('New Customer', 'نیا کسٹمر')),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              field('NAME *', nameCtrl, hint: 'Customer name'),
+              field('PHONE (OPTIONAL)', phoneCtrl, type: TextInputType.phone, hint: 'Phone'),
+              field('CREDIT LIMIT (OPTIONAL)', limitCtrl, type: decimal, hint: 'Credit limit'),
+              field('OPENING BALANCE (RS, IF ANY PREVIOUS DUE)', openingCtrl, type: decimal, hint: 'Opening balance'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, null), child: Text(Loc.t('Cancel', 'منسوخ کریں'))),
+          FilledButton(
+            onPressed: () async {
+              final name = nameCtrl.text.trim();
+              if (name.isEmpty) {
+                _toast(Loc.t('Name is required', 'نام ضروری ہے'));
+                return;
+              }
+              final limit = parseMoneyOrWarn(ctx, limitCtrl.text, 'Credit Limit', 'کریڈٹ حد');
+              if (limit == null) return;
+              final opening = parseMoneyOrWarn(ctx, openingCtrl.text, 'Opening Balance', 'افتتاحی بیلنس');
+              if (opening == null) return;
+              final exists = _customers.any((c) => c.name.toLowerCase() == name.toLowerCase());
+              if (exists) {
+                _toast(Loc.t('"$name" already exists', '"$name" پہلے سے موجود ہے'));
+                return;
+              }
+              await CustomerRepository.instance.insert(Customer(
+                name: name,
+                phone: phoneCtrl.text.trim(),
+                creditLimit: limit,
+                openingBalance: opening,
+                updatedAt: DateTime.now().millisecondsSinceEpoch,
+              ));
+              if (ctx.mounted) Navigator.pop(ctx, name);
+            },
+            child: Text(Loc.t('Add', 'شامل کریں')),
+          ),
+        ],
+      ),
+    );
+    nameCtrl.dispose();
+    phoneCtrl.dispose();
+    limitCtrl.dispose();
+    openingCtrl.dispose();
+    if (added == null || !mounted) return;
+    setState(() => _customerCtrl.text = added);
+    _toast(Loc.t('Customer added: $added', 'کسٹمر شامل ہو گیا: $added'));
+  }
+
+  void _toast(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message), duration: const Duration(seconds: 2)));
+  }
+
+  // ------------------------------------------------------------------- UI
+
+  /// Sale screen ke keyboard shortcuts.
+  Map<ShortcutActivator, VoidCallback> get _shortcuts => {
+        const SingleActivator(LogicalKeyboardKey.f2): () => _itemFocus.requestFocus(),
+        const SingleActivator(LogicalKeyboardKey.f3): () => _customerFocus.requestFocus(),
+        const SingleActivator(LogicalKeyboardKey.f4): () => _discountFocus.requestFocus(),
+        const SingleActivator(LogicalKeyboardKey.f6): () {
+          if (_splitPayments.isEmpty) _paidFocus.requestFocus();
+        },
+        const SingleActivator(LogicalKeyboardKey.f7): () => _onSaleTypeChanged(_isShopkeeper ? 0 : (_isWholesale ? 2 : 1)),
+        const SingleActivator(LogicalKeyboardKey.f8): _toggleAmountMode,
+        const SingleActivator(LogicalKeyboardKey.f9): () { if (!_saving) _save(); },
+        const SingleActivator(LogicalKeyboardKey.keyS, control: true): () { if (!_saving) _save(); },
+        const SingleActivator(LogicalKeyboardKey.keyP, control: true): _printCurrent,
+        if (!_isEdit) ...{
+          const SingleActivator(LogicalKeyboardKey.keyQ, control: true): _openQuickSale,
+          const SingleActivator(LogicalKeyboardKey.keyH, control: true): _holdBill,
+          const SingleActivator(LogicalKeyboardKey.keyR, control: true): _openRecall,
+        },
+        // Esc: line edit cancel, warna item entry saaf (autocomplete khula ho to wo pehle band hota hai).
+        const SingleActivator(LogicalKeyboardKey.escape): () {
+          if (_editingIndex != null) {
+            _cancelLineEdit();
+          } else if (_itemCtrl.text.isNotEmpty || _qtyCtrl.text.isNotEmpty || _priceCtrl.text.isNotEmpty) {
+            setState(_clearItemEntry);
+          }
+          _itemFocus.requestFocus();
+        },
+      };
+
+  Widget _withShortcuts(Widget child) => CallbackShortcuts(
+        bindings: _shortcuts,
+        child: Focus(autofocus: true, skipTraversal: true, child: child),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    // Editing a saved bill is admin-only.
+    if (_isEdit && !Session.isAdmin) {
+      return const RoleGuard(allowed: {'admin'}, child: SizedBox.shrink());
+    }
+    if (_isEdit && _originalSale == null) {
+      return Scaffold(
+        backgroundColor: ThemeManager.palette.bg,
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+    final returned = _originalSale?.status == 'returned';
+    // Kotlin `isTabletWide = screenWidthDp >= 700`.
+    final wide = MediaQuery.of(context).size.width >= 700;
+
+    final headerWidgets = <Widget>[
+      _buildSaleHeader(),
+      if (returned)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text(
+            Loc.t('This sale is already Returned', 'یہ سیل پہلے ہی واپس ہو چکی ہے'),
+            style: TextStyle(color: ThemeManager.palette.red, fontWeight: FontWeight.bold),
+          ),
+        ),
+      _buildActionRow(),
+      _buildTopRow(),
+      _buildFirmCard(),
+      _buildCustomerCard(),
+      _buildSaleTypeCard(),
+      _buildItemEntryCard(),
+    ];
+
+    if (!wide) {
+      return _withShortcuts(Scaffold(
+        backgroundColor: ThemeManager.palette.bg,
+        body: SafeArea(
+          child: Column(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: _scrollCtrl,
+                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [...headerWidgets, _buildLinesList(), _buildTotalsCard()],
+                  ),
+                ),
+              ),
+              _buildSaveBar(),
+            ],
+          ),
+        ),
+      ));
+    }
+
+    // Tablet (>= 700dp): Kotlin twoPane — left = customer/item entry (scroll),
+    // right = billed items (apni scroll) + Total/Payment/Save neeche pinned.
+    return _withShortcuts(Scaffold(
+      backgroundColor: ThemeManager.palette.bg,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                flex: 13,
+                child: SingleChildScrollView(
+                  controller: _scrollCtrl,
+                  padding: const EdgeInsets.fromLTRB(4, 20, 16, 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: headerWidgets,
+                  ),
+                ),
+              ),
+              VerticalDivider(width: 1, thickness: 1, color: ThemeManager.palette.border),
+              Expanded(
+                flex: 10,
+                child: LayoutBuilder(
+                  builder: (context, box) => Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(16, 20, 4, 8),
+                          child: _buildLinesList(inline: true),
+                        ),
+                      ),
+                      // Billing card ki ooncha'i hadd mein (keyboard khula ho to bhi): warna wo poori jagah
+                      // le kar billed items chupa deta tha. Hadd se zyada ho to card apne andar scroll hota hai.
+                      ConstrainedBox(
+                        constraints: BoxConstraints(maxHeight: box.maxHeight * 0.38),
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 4, 0),
+                          child: _buildTotalsCard(),
+                        ),
+                      ),
+                      _buildSaveBar(),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ));
+  }
+
+  Widget _softCard({required Widget child, EdgeInsets? padding, double radius = 14, EdgeInsets? margin}) => Container(
+        margin: margin ?? const EdgeInsets.only(bottom: 14),
+        padding: padding,
+        decoration: BoxDecoration(
+          color: ThemeManager.palette.cardWhite,
+          borderRadius: BorderRadius.circular(radius),
+          border: Border.all(color: ThemeManager.palette.border),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 3, offset: const Offset(0, 1))],
+        ),
+        child: child,
+      );
+
+  /// Kotlin header: title + subtitle left; white "Quick Sale" / "History" pills and a round ⋮ menu right.
+  Widget _buildSaleHeader() {
+    final pal = ThemeManager.palette;
+    Widget chip(String label, VoidCallback onTap) => InkWell(
+          borderRadius: BorderRadius.circular(30),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(30)),
+            child: Text(label, style: TextStyle(color: pal.blue, fontSize: 13.5, fontWeight: FontWeight.bold)),
+          ),
+        );
+    final returned = _originalSale?.status == 'returned';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.fromLTRB(18, 16, 12, 16),
+      decoration: BoxDecoration(
+        color: pal.navy,
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(26)),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 8, offset: const Offset(0, 3))],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(_isEdit ? Loc.t('Edit Sale', 'سیل میں ترمیم') : Loc.t('New Sale', 'نئی سیل'),
+                    style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                Text(_isEdit ? 'Invoice ${widget.editInvoice}' : 'RETAIL · WHOLESALE BILLING',
+                    style: const TextStyle(color: Color(0xFF9FB4CC), fontSize: 10.5, fontWeight: FontWeight.bold, letterSpacing: 0.8)),
+              ],
+            ),
+          ),
+          if (!_isEdit) ...[chip(Loc.t('Quick Sale', 'فوری سیل'), _openQuickSale), const SizedBox(width: 8)],
+          chip(Loc.t('History', 'ہسٹری'), () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SaleHistoryScreen()))),
+          const SizedBox(width: 6),
+          PopupMenuButton<String>(
+            tooltip: '',
+            color: Colors.white,
+            icon: Container(
+              width: 34,
+              height: 34,
+              decoration: const BoxDecoration(color: Color(0x22FFFFFF), shape: BoxShape.circle),
+              child: const Icon(Icons.more_vert, color: Colors.white, size: 20),
+            ),
+            onSelected: (v) {
+              switch (v) {
+                case 'print':
+                case 'share':
+                  _printCurrent();
+                case 'return':
+                  if (!_saving) _returnSale();
+                case 'delete':
+                  if (!_saving) _deleteSale();
+              }
+            },
+            itemBuilder: (_) => [
+              PopupMenuItem(value: 'print', child: Text(Loc.t('Print', 'پرنٹ'))),
+              PopupMenuItem(value: 'share', child: Text(Loc.t('Share', 'شیئر کریں'))),
+              if (_isEdit && !returned) PopupMenuItem(value: 'return', child: Text(Loc.t('Return', 'واپس'))),
+              if (_isEdit) PopupMenuItem(value: 'delete', child: Text(Loc.t('Delete', 'حذف'))),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _holdRecallCard(String label, VoidCallback onTap, {required bool left}) => Expanded(
+        child: Padding(
+          padding: EdgeInsets.only(left: left ? 0 : 6, right: left ? 6 : 0),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: onTap,
+            child: _softCard(
+              margin: EdgeInsets.zero,
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              child: Center(child: Text(label, style: TextStyle(color: ThemeManager.palette.blue, fontSize: 14, fontWeight: FontWeight.bold))),
+            ),
+          ),
+        ),
+      );
+
+  Widget _buildActionRow() {
+    final wideScreen = MediaQuery.of(context).size.width >= 700;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (wideScreen)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                'F2 Item · F3 Customer · F4 Discount · F6 Paid · F7 Retail/Wholesale · F8 Rs · F9/Ctrl+S Save · Ctrl+H Hold · Ctrl+R Recall · Ctrl+Q Quick · Esc Clear',
+                style: TextStyle(fontSize: 11, color: ThemeManager.palette.textMuted),
+              ),
+            ),
+          if (!_isEdit)
+            Row(children: [
+              _holdRecallCard('⏸  ${Loc.t('Hold', 'روکیں')}', _holdBill, left: true),
+              _holdRecallCard('↺  ${Loc.t('Recall', 'واپس لائیں')}', _openRecall, left: false),
+            ]),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFirmCard() => _softCard(
+        radius: 18,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        child: Column(children: [
+          Text(Loc.t('Firm Name', 'فرم کا نام').toUpperCase(),
+              style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, letterSpacing: 0.5, color: ThemeManager.palette.textMuted)),
+          const SizedBox(height: 2),
+          Text(_firmName, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: ThemeManager.palette.textDark)),
+        ]),
+      );
+
+  Widget _buildTopRow() {
+    final pal = ThemeManager.palette;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(30),
+            onTap: _pickDate,
+            child: _softCard(
+              radius: 30,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.calendar_today_outlined, size: 20, color: pal.textDark),
+                const SizedBox(width: 8),
+                Text(DateFormat('dd/MM/yyyy').format(_saleDate),
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: pal.textDark)),
+                Text('  ›', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: pal.teal)),
+              ]),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSaleTypeCard() {
+    final pal = ThemeManager.palette;
+    return _softCard(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(Loc.t('Sale Type', 'سیل کی قسم').toUpperCase(),
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.5, color: pal.textMuted)),
+          DropdownButtonHideUnderline(
+            child: DropdownButton<int>(
+              key: _saleTypeKey,
+              isExpanded: true,
+              value: _isShopkeeper ? 2 : (_isWholesale ? 1 : 0),
+              style: TextStyle(fontSize: 18, color: pal.textDark),
+              items: [
+                DropdownMenuItem(value: 0, child: Text(Loc.t('Retail', 'ریٹیل'))),
+                DropdownMenuItem(value: 1, child: Text(Loc.t('Wholesale', 'ہول سیل'))),
+                DropdownMenuItem(value: 2, child: Text(Loc.t('Shopkeeper', 'دکاندار'))),
+              ],
+              onChanged: (v) {
+                if (v == null) return;
+                _onSaleTypeChanged(v);
+                // Kotlin: sale type chunte hi Item Name par cursor + keyboard.
+                _focus(_itemFocus);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _fieldBox({required Widget child}) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        decoration: BoxDecoration(color: ThemeManager.palette.fieldFill, borderRadius: BorderRadius.circular(16), border: Border.all(color: ThemeManager.palette.border)),
+        child: child,
+      );
+
+  Widget _buildCustomerCard() {
+    return _softCard(
+      radius: 18,
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(Loc.t('Customer', 'کسٹمر').toUpperCase(),
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.5, color: ThemeManager.palette.textMuted)),
+          ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: _fieldBox(
+                  child: LayoutBuilder(builder: (context, fieldBox) => RawAutocomplete<String>(
+                    textEditingController: _customerCtrl,
+                    focusNode: _customerFocus,
+                    onSelected: (_) {
+                      _suggestCustomerRate();
+                      _afterCustomerChosen();
+                    },
+                    optionsBuilder: (text) {
+                      final q = text.text.trim().toLowerCase();
+                      final names = _customers.map((c) => c.name);
+                      if (q.isEmpty) return names;
+                      return names.where((n) => n.toLowerCase().contains(q));
+                    },
+                    fieldViewBuilder: (context, controller, focusNode, onSubmit) => TextField(
+                      controller: controller,
+                      focusNode: focusNode,
+                      onChanged: (_) => setState(() {}),
+                      onEditingComplete: () {},
+                      onSubmitted: (_) {
+                        // Khali = walk-in (pehla customer na chunein); warna highlighted chunein.
+                        if (_customerCtrl.text.trim().isNotEmpty) onSubmit();
+                        _afterCustomerChosen();
+                      },
+                      decoration: InputDecoration(hintText: Loc.t('Customer Name (Walk-in)', 'کسٹمر کا نام (واک ان)'), border: InputBorder.none, isDense: true),
+                    ),
+                    optionsViewBuilder: (context, onSelected, options) =>
+                        autocompleteOptionsView<String>(context, onSelected, options, (o) => o, maxWidth: fieldBox.maxWidth),
+                  )),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton.filled(
+                tooltip: Loc.t('New customer', 'نیا کسٹمر'),
+                style: IconButton.styleFrom(backgroundColor: ThemeManager.palette.teal),
+                icon: const Icon(Icons.add),
+                onPressed: _promptAddCustomer,
+              ),
+            ],
+          ),
+          _buildCustomerDue(),
+        ],
+      ),
+    );
+  }
+
+  /// Customer ka baqaya + "Payment lein" button (sirf jab uska baqaya baqi ho).
+  Widget _buildCustomerDue() {
+    final r = _currentCustomerRow();
+    if (r == null || r.closing <= 0.009) return const SizedBox.shrink();
+    final pal = ThemeManager.palette;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(children: [
+        Expanded(
+          child: Text(
+            '${Loc.t('Balance', 'بقایا')}: Rs ${formatRound(r.closing)}',
+            style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: pal.flatCoralFg),
+          ),
+        ),
+        TextButton.icon(
+          onPressed: () => _receivePaymentFromCustomer(r),
+          icon: const Icon(Icons.south_west, size: 16),
+          label: Text(Loc.t('Receive Payment', 'ادائیگی لیں')),
+        ),
+      ]),
+    );
+  }
+
+  /// "1 Carton = 12 Dozen • 1 Dozen = 12 Pcs" line under the unit picker.
+  String _conversionInfo(Product p) {
+    final choices = saleUnitChoices(p);
+    final parts = <String>[];
+    if (choices.length > 1 && p.secondaryUnitQty > 0) {
+      parts.add('1 ${p.unit} = ${formatQty(p.secondaryUnitQty)} ${p.secondaryUnit}');
+    }
+    if (choices.length > 2 && p.tertiaryUnitQty > 0) {
+      parts.add('1 ${p.secondaryUnit} = ${formatQty(p.tertiaryUnitQty)} ${p.tertiaryUnit}');
+    }
+    return parts.join('   •   ');
+  }
+
+  Widget _buildMarginWarning() {
+    final p = _pickedProduct;
+    if (p == null) return const SizedBox.shrink();
+    final unit = _selectedUnit.isEmpty ? p.unit : _selectedUnit;
+    final price = double.tryParse(_priceCtrl.text.trim()) ?? 0.0;
+    final m = marginFor(p, price, unit);
+    if (m.level == MarginLevel.none) return const SizedBox.shrink();
+
+    // Cost figures are admin/manager only; a cashier still gets the loss
+    // warning (same protection) but never sees the cost or margin numbers.
+    final showFigures = Session.isAdminOrManager;
+    late final String text;
+    late final Color color;
+    switch (m.level) {
+      case MarginLevel.loss:
+        color = ThemeManager.palette.red;
+        text = showFigures
+            ? Loc.t('⚠ Loss! Sale rate ≤ Cost (Rs ${m.costInUnit.toStringAsFixed(2)})',
+                '⚠ نقصان! سیل ریٹ لاگت (روپے ${m.costInUnit.toStringAsFixed(2)}) کے برابر یا کم ہے')
+            : Loc.t('⚠ Loss! Rate is too low', '⚠ نقصان! ریٹ بہت کم ہے');
+        break;
+      case MarginLevel.low:
+        color = ThemeManager.palette.amber;
+        text = showFigures
+            ? Loc.t('⚠ Low margin: Rs ${m.margin.toStringAsFixed(2)} (${m.marginPct.toStringAsFixed(1)}%) vs Cost Rs ${m.costInUnit.toStringAsFixed(2)}',
+                '⚠ کم منافع: روپے ${m.margin.toStringAsFixed(2)} (${m.marginPct.toStringAsFixed(1)}%) بمقابلہ لاگت روپے ${m.costInUnit.toStringAsFixed(2)}')
+            : Loc.t('⚠ Low margin', '⚠ کم منافع');
+        break;
+      default:
+        if (!showFigures) return const SizedBox.shrink();
+        color = ThemeManager.palette.teal;
+        text = Loc.t('Margin: Rs ${m.margin.toStringAsFixed(2)} (${m.marginPct.toStringAsFixed(1)}%) vs Cost Rs ${m.costInUnit.toStringAsFixed(2)}',
+            'منافع: روپے ${m.margin.toStringAsFixed(2)} (${m.marginPct.toStringAsFixed(1)}%) بمقابلہ لاگت روپے ${m.costInUnit.toStringAsFixed(2)}');
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, left: 4),
+      child: Text(text, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color)),
+    );
+  }
+
+  /// "Total Amount: Rs 500" — in Rs mode also the qty that amount buys.
+  String _itemTotalText(double qty, double price, String unit) {
+    if (_qtyIsAmountMode) {
+      final amount = double.tryParse(_qtyCtrl.text.trim()) ?? 0.0;
+      final derived = qtyFromAmount(amount, price);
+      if (derived != null) {
+        return '≈ ${formatQty(derived)} $unit   •   Total Amount: Rs ${amount.round()}';
+      }
+      return 'Total Amount: Rs 0';
+    }
+    return 'Total Amount: Rs ${(qty * price).round()}';
+  }
+
+  /// Urdu/Arabic harf ho to RTL (text right par), warna app ki zabaan ke mutabiq.
+  TextDirection _nameDirection(String text) {
+    final rtl = RegExp(r'[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]');
+    final latin = RegExp(r'[A-Za-z]');
+    for (final r in text.runes) {
+      final ch = String.fromCharCode(r);
+      if (rtl.hasMatch(ch)) return TextDirection.rtl;
+      if (latin.hasMatch(ch)) return TextDirection.ltr;
+    }
+    return Loc.isUrdu ? TextDirection.rtl : TextDirection.ltr;
+  }
+
+  /// Add Item card ko GlobalKey deta hai taake keyboard khulne par use poora (rate + Add to Bill samet) dikhaya ja sake.
+  Widget _buildItemEntryCard() => KeyedSubtree(key: _itemEntryKey, child: _buildItemEntryCardBody());
+
+  Widget _buildItemEntryCardBody() {
+    final picked = _pickedProduct;
+    final unitOptions = picked != null ? saleUnitChoices(picked) : <String>['pcs'];
+    final unitValue = unitOptions.contains(_selectedUnit) ? _selectedUnit : unitOptions.first;
+    final qty = double.tryParse(_qtyCtrl.text.trim()) ?? 0.0;
+    final price = double.tryParse(_priceCtrl.text.trim()) ?? 0.0;
+
+    return PremiumCard(
+      accentTop: ThemeManager.palette.amber,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SectionLabel(emoji: '➕', label: 'Add Item', accent: ThemeManager.palette.amber),
+          _fieldBox(
+            child: LayoutBuilder(builder: (context, fieldBox) => RawAutocomplete<Product>(
+              textEditingController: _itemCtrl,
+              focusNode: _itemFocus,
+              displayStringForOption: (p) => p.name,
+              optionsBuilder: (text) {
+                if (text.text.trim().isEmpty) return const Iterable<Product>.empty();
+                return _products.where((p) => p.matchesQuery(text.text));
+              },
+              onSelected: _onProductPicked,
+              fieldViewBuilder: (context, controller, focusNode, onSubmit) => ValueListenableBuilder<TextEditingValue>(
+                valueListenable: controller,
+                builder: (context, value, _) => TextField(
+                controller: controller,
+                focusNode: focusNode,
+                textDirection: _nameDirection(value.text),
+                textAlign: _nameDirection(value.text) == TextDirection.rtl ? TextAlign.right : TextAlign.left,
+                onChanged: (v) {
+                  // Typing a different name drops the previous pick.
+                  final pp = _pickedProduct;
+                  if (pp != null && pp.name != v) {
+                    setState(() {
+                      _pickedProduct = null;
+                      _selectedUnit = '';
+                      _lastMainPrice = 0.0;
+                      _customerRateName = null;
+                      _customerRateSkipNote = null;
+      _customerRateSkipNote = null;
+                    });
+                  }
+                },
+                onEditingComplete: () {},
+                onSubmitted: (_) {
+                  final t = _itemCtrl.text.trim();
+                  if (t.isEmpty) {
+                    // Khali Enter: items ho chuke -> Discount/Paid.
+                    _focus(_lines.isNotEmpty ? _discountFocus : _itemFocus);
+                    return;
+                  }
+                  if (_pickedProduct != null && _pickedProduct!.name == t) {
+                    _focus(_qtyFocus);
+                    return;
+                  }
+                  onSubmit(); // highlighted product chun lo (onSelected qty pe focus dega)
+                  if (_pickedProduct == null) _focus(_itemFocus); // match nahi mila
+                },
+                decoration: const InputDecoration(hintText: 'Search a product to sell  (F2)', border: InputBorder.none, isDense: true),
+                ),
+              ),
+              optionsViewBuilder: (context, onSelected, options) =>
+                  autocompleteOptionsView<Product>(context, onSelected, options, (o) => o.medicalInfoLine.isEmpty ? o.name : '${o.name}  —  ${o.medicalInfoLine}', maxWidth: fieldBox.maxWidth),
+            )),
+          ),
+          if (picked != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8, left: 4),
+              child: Text(
+                'In stock: ${picked.formatStockBreakdown()}',
+                style: TextStyle(fontSize: 11, color: ThemeManager.palette.textMuted),
+              ),
+            ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: PremiumLabeledField(
+                  emoji: _qtyIsAmountMode ? '₨' : '🔢',
+                  label: _qtyIsAmountMode ? Loc.t('Amount (Rs)', 'رقم (روپے)') : 'Quantity',
+                  accent: ThemeManager.palette.amber,
+                  controller: _qtyCtrl,
+                  hint: _qtyIsAmountMode ? Loc.t('Amount in Rs', 'روپے میں رقم') : '0',
+                  focusNode: _qtyFocus,
+                  keepFocusOnSubmit: true,
+                  onSubmitted: _onQtySubmitted,
+                  onChanged: (_) => setState(_applyBulkRate),
+                ),
+              ),
+              const SizedBox(width: 8),
+              // "Rs" pill: type the rupee amount, qty is worked out from the rate.
+              GestureDetector(
+                onTap: _toggleAmountMode,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: _qtyIsAmountMode ? ThemeManager.palette.teal : ThemeManager.palette.cardWhite,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: _qtyIsAmountMode ? ThemeManager.palette.teal : ThemeManager.palette.border),
+                  ),
+                  child: Text(
+                    'Rs',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: _qtyIsAmountMode ? Colors.white : ThemeManager.palette.textMuted,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(color: ThemeManager.palette.fieldFill, borderRadius: BorderRadius.circular(16), border: Border.all(color: ThemeManager.palette.border)),
+                child: DropdownButton<String>(
+                  value: unitValue,
+                  underline: const SizedBox.shrink(),
+                  items: unitOptions.map((u) => DropdownMenuItem(value: u, child: Text(u))).toList(),
+                  onChanged: picked == null
+                      ? null
+                      : (v) {
+                          if (v == null) return;
+                          setState(() {
+                            _selectedUnit = v;
+                            _refillAutoPrice();
+                          });
+                        },
+                ),
+              ),
+            ],
+          ),
+          if (picked != null && _conversionInfo(picked).isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8, left: 4),
+              child: Text(_conversionInfo(picked), style: TextStyle(fontSize: 11.5, color: ThemeManager.palette.textMuted)),
+            ),
+          const SizedBox(height: 12),
+          PremiumLabeledField(
+            emoji: '💵',
+            label: 'Unit Price (auto-filled, editable)',
+            accent: ThemeManager.palette.teal,
+            controller: _priceCtrl,
+            focusNode: _priceFocus,
+            keepFocusOnSubmit: true,
+            onChanged: _onPriceChanged,
+            // Enter = Add to Bill. Na ho paya to wahin focus rahe.
+            onSubmitted: _submitItemEntry,
+          ),
+          if (_customerRateName != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8, left: 4),
+              child: Text(
+                Loc.t(
+                  "$_customerRateName's usual rate applied: Rs ${price.toStringAsFixed(2)} / $unitValue",
+                  '$_customerRateName کا معمول کا ریٹ لگا دیا گیا: روپے ${price.toStringAsFixed(2)} / $unitValue',
+                ),
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: ThemeManager.palette.blue),
+              ),
+            ),
+          if (_customerRateSkipNote != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8, left: 4),
+              child: Text(
+                _customerRateSkipNote!,
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: ThemeManager.palette.flatAmberFg),
+              ),
+            ),
+          _buildMarginWarning(),
+          Padding(
+            padding: const EdgeInsets.only(top: 10, left: 4),
+            child: Text(_itemTotalText(qty, price, unitValue),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: ThemeManager.palette.textDark)),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: GradientButton(
+              label: _editingIndex != null ? Loc.t('UPDATE ITEM', 'آئٹم اپ ڈیٹ کریں') : 'Add to Bill',
+              emoji: _editingIndex != null ? '✔' : '✚',
+              start: _editingIndex != null ? ThemeManager.palette.amber : ThemeManager.palette.teal,
+              end: _editingIndex != null ? ThemeManager.palette.orange : ThemeManager.palette.tealDark,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              onTap: _addLine,
+            ),
+          ),
+          if (_editingIndex != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: TextButton(
+                onPressed: _cancelLineEdit,
+                child: Text(Loc.t('Cancel edit', 'ترمیم منسوخ کریں'), style: TextStyle(color: ThemeManager.palette.red)),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Compact trigger (Kotlin `billedItemsTrigger`): the full list lives in a popup
+  /// so the entry fields and totals stay on screen while items are added.
+  Widget _buildLinesList({bool inline = false}) {
+    if (inline) return _buildInlineLines();
+    if (_lines.isEmpty) return const SizedBox.shrink();
+    return PremiumCard(
+      accentTop: ThemeManager.palette.navy,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: _openBilledItemsDialog,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            children: [
+              const Text('🧾', style: TextStyle(fontSize: 18)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${Loc.t('Billed Items', 'بل کردہ آئٹمز')}  (${_lines.length})  ·  Rs ${_subtotal.toStringAsFixed(0)}',
+                  style: TextStyle(fontWeight: FontWeight.bold, color: ThemeManager.palette.navyInk),
+                ),
+              ),
+              Icon(Icons.keyboard_arrow_down, color: ThemeManager.palette.navyInk),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Tablet right pane: billed items always visible (Purchase ki tarah), apni scroll ke saath.
+  Widget _buildInlineLines() {
+    if (_lines.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 40),
+        child: Center(
+          child: Text(Loc.t('No items added yet', 'ابھی تک کوئی آئٹم شامل نہیں'),
+              style: TextStyle(color: ThemeManager.palette.textMuted)),
+        ),
+      );
+    }
+    return PremiumCard(
+      accentTop: ThemeManager.palette.navy,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SectionLabel(
+              emoji: '🧾',
+              label: '${Loc.t('Billed Items', 'بل کردہ آئٹمز')} (${_lines.length})',
+              accent: ThemeManager.palette.navyInk),
+          for (var i = 0; i < _lines.length; i++)
+            _billedLineTile(i, _lines[i], onEdit: () => _editLine(i), onDelete: () => _removeLine(i)),
+        ],
+      ),
+    );
+  }
+
+  /// Kotlin `openBilledItemsDialog()`: closing it just returns to where the
+  /// cashier was (no focus jump to Paid).
+  Future<void> _openBilledItemsDialog() async {
+    if (_lines.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(Loc.t('No items added yet', 'ابھی تک کوئی آئٹم شامل نہیں'))),
+      );
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          if (_lines.isEmpty) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (Navigator.of(dialogCtx).canPop()) Navigator.of(dialogCtx).pop();
+            });
+          }
+          return AlertDialog(
+            title: Text(Loc.t('Billed Items', 'بل کردہ آئٹمز')),
+            contentPadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (var i = 0; i < _lines.length; i++)
+                      _billedLineTile(
+                        i,
+                        _lines[i],
+                        onEdit: () {
+                          Navigator.of(dialogCtx).pop();
+                          _editLine(i); // refills the entry fields + scrolls up
+                        },
+                        onDelete: () {
+                          _removeLine(i);
+                          setDialogState(() {});
+                        },
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogCtx).pop(),
+                child: Text(Loc.t('Close', 'بند کریں')),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _billedLineTile(int i, SaleLine line, {required VoidCallback onEdit, required VoidCallback onDelete}) {
+    final beingEdited = _editingIndex == i;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: beingEdited ? ThemeManager.palette.amber.withOpacity(0.12) : ThemeManager.palette.fieldFill,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: beingEdited ? ThemeManager.palette.amber : ThemeManager.palette.border),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: InkWell(
+              onTap: onEdit,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(line.itemName, style: TextStyle(fontWeight: FontWeight.bold, color: ThemeManager.palette.textDark)),
+                  Text('${formatQty(line.qty)} ${line.unit}  ×  ${formatAmount(line.unitPrice)}',
+                      style: TextStyle(fontSize: 11.5, color: ThemeManager.palette.textMuted)),
+                ],
+              ),
+            ),
+          ),
+          Text(formatRound(line.amount), style: TextStyle(fontWeight: FontWeight.bold, color: ThemeManager.palette.teal)),
+          IconButton(icon: Icon(Icons.edit, size: 18, color: ThemeManager.palette.blue), tooltip: 'Edit', onPressed: onEdit),
+          IconButton(icon: Icon(Icons.close, size: 18, color: ThemeManager.palette.red), onPressed: onDelete),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTotalsCard() {
+    final totals = _totals;
+    return PremiumCard(
+      accentTop: ThemeManager.palette.purple,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SectionLabel(emoji: '💰', label: 'Billing', accent: ThemeManager.palette.purple),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(Loc.t('Subtotal', 'سب ٹوٹل'), style: TextStyle(color: ThemeManager.palette.textMuted)),
+              Text(formatRound(totals.subtotal), style: TextStyle(fontWeight: FontWeight.bold, color: ThemeManager.palette.textDark)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          PremiumLabeledField(emoji: '➖', label: 'Discount', accent: ThemeManager.palette.orange, controller: _discountCtrl, focusNode: _discountFocus, onSubmitted: () => _focus(_paidFocus), onChanged: (_) => setState(() {})),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(Loc.t('Total', 'ٹوٹل'), style: TextStyle(fontWeight: FontWeight.bold, color: ThemeManager.palette.textDark)),
+              Text(totals.total.toStringAsFixed(0), style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: ThemeManager.palette.navyInk)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          PremiumLabeledField(emoji: '💵', label: 'Paid Amount', accent: ThemeManager.palette.purple, controller: _paidCtrl, focusNode: _paidFocus, enabled: _splitPayments.isEmpty, onSubmitted: () { if (!_saving) _save(); }, onChanged: (_) => setState(() {})),
+          const SizedBox(height: 8),
+          if (_splitPayments.isEmpty)
+            Row(
+              children: [
+                Expanded(
+                  child: _fieldBox(
+                    child: DropdownButton<String>(
+                      isExpanded: true,
+                      underline: const SizedBox.shrink(),
+                      value: _paymentMethod,
+                      items: [
+                        DropdownMenuItem(value: 'Cash', child: Text(Loc.t('Cash', 'کیش'))),
+                        DropdownMenuItem(value: 'Bank', child: Text(Loc.t('Bank', 'بینک'))),
+                      ],
+                      onChanged: (v) => setState(() => _paymentMethod = v ?? 'Cash'),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: _openSplitPaymentDialog,
+                  child: Text(Loc.t('+ Split Payment (multiple methods)', '+ ادائیگی تقسیم کریں (ایک سے زیادہ طریقے)')),
+                ),
+              ],
+            )
+          else
+            InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () async {
+                final remove = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: Text(Loc.t('Remove Split Payment?', 'تقسیم شدہ ادائیگی ہٹائیں؟')),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(Loc.t('Edit', 'ترمیم کریں'))),
+                      FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(Loc.t('Remove', 'ہٹائیں'))),
+                    ],
+                  ),
+                );
+                if (remove == true) {
+                  _clearSplitPayments();
+                } else if (remove == false) {
+                  await _openSplitPaymentDialog();
+                }
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                child: Text(
+                  '${Loc.t('Split', 'تقسیم')}: ${splitBreakdown(_splitPayments)}   ✕',
+                  style: TextStyle(fontWeight: FontWeight.bold, color: ThemeManager.palette.navyInk, fontSize: 13),
+                ),
+              ),
+            ),
+          // Kotlin refreshDue(): Paid khali + total > 0 => "Paid khali hai - Rs X Udhaar jayega".
+          if ((double.tryParse(_paidCtrl.text.trim()) ?? 0.0) <= 0.009 && _splitPayments.isEmpty && totals.total > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text('⚠ Paid khali hai - Rs ${formatRound(totals.due)} Udhaar jayega',
+                  style: TextStyle(color: ThemeManager.palette.red, fontSize: 11, fontWeight: FontWeight.bold)),
+            ),
+          if (totals.due > 0.009) _buildDueDateRow(),
+          const SizedBox(height: 12),
+          // Kotlin "DUE AMOUNT" card: hamesha dikhta hai; baqi ho to laal, warna hara.
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+            decoration: BoxDecoration(
+              color: ThemeManager.palette.fieldFill,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: ThemeManager.palette.border),
+            ),
+            child: Row(children: [
+              Expanded(
+                child: Text(Loc.t('Due Amount', 'باقی رقم').toUpperCase(),
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.5, color: ThemeManager.palette.textMuted)),
+              ),
+              Text('Rs ${formatRound(totals.due)}',
+                  style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: totals.due > 0.009 ? ThemeManager.palette.red : ThemeManager.palette.teal)),
+            ]),
+          ),
+          if (totals.due > 0.009)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(Loc.t('Customer required for due amount', 'باقی رقم کے لیے کسٹمر ضروری ہے'),
+                  style: TextStyle(color: ThemeManager.palette.red, fontSize: 12, fontWeight: FontWeight.bold)),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSaveBar() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+      decoration: BoxDecoration(color: ThemeManager.palette.cardWhite, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 10, offset: const Offset(0, -3))]),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          width: double.infinity,
+          child: GradientButton(
+            label: _saving ? 'SAVING…' : (_isEdit ? Loc.t('UPDATE SALE', 'سیل اپ ڈیٹ کریں') : 'SAVE SALE'),
+            emoji: '💾',
+            start: ThemeManager.palette.navy,
+            end: ThemeManager.palette.navyLight,
+            radius: 16,
+            padding: const EdgeInsets.symmetric(vertical: 18),
+            onTap: _saving ? () {} : _save,
+          ),
+        ),
+      ),
+    );
+  }
+}

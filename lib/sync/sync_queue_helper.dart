@@ -3,7 +3,6 @@ import 'dart:convert';
 
 import 'package:sqflite/sqflite.dart';
 
-import '../installment/inst_sync.dart' show InstSync;
 import 'branch_config_store.dart';
 import 'device_tag.dart';
 
@@ -226,6 +225,11 @@ class SyncQueueHelper {
         'defaultUnitIndex': p['defaultUnitIndex'],
         'quickSaleDefaultUnitIndex': p['quickSaleDefaultUnitIndex'],
         'searchTag': p['searchTag'],
+        // Hanna Medical Store (Kotlin app jaise hi field naam)
+        // (sirf jab local row mein column ho — purana schema/test table ho to field bheji hi nahi jati)
+        if (p.containsKey('genericName')) 'genericName': p['genericName'] ?? '',
+        if (p.containsKey('company')) 'company': p['company'] ?? '',
+        if (p.containsKey('rackLocation')) 'rackLocation': p['rackLocation'] ?? '',
         // "stock" / "openingStock" jaan boojh kar nahi — sirf increment_stock se.
       });
 
@@ -494,6 +498,9 @@ class SyncQueueHelper {
           'retailRate': it['retailRate'],
           'wholesaleRate': it['wholesaleRate'],
           'shopkeeperRate': it['shopkeeperRate'] ?? 0,
+          // Hanna Medical Store: batch + expiry
+          if (it.containsKey('batchNo')) 'batchNo': it['batchNo'] ?? '',
+          if (it.containsKey('expiry')) 'expiry': it['expiry'] ?? '',
         }
     ];
     return _stamp({
@@ -1122,17 +1129,7 @@ class SyncQueueHelper {
 
   /// Kotlin `resyncAllLocalData`: har local row dobara push ke liye queue (pehle kabhi synced ho ya
   /// nahi). Zakat: year pehle, phir uske payments. Kai baar chalana safe hai.
-  /// Hanna Installment: resync ke baad (transaction ke bahar) — tasveerein (InstPhotoSync.install set karta hai).
-  static Future<void> Function()? afterResync;
-
   static Future<void> resyncAllLocalData(Database db) async {
-    await _resyncTables(db);
-    try {
-      await afterResync?.call();
-    } catch (_) {}
-  }
-
-  static Future<void> _resyncTables(Database db) async {
     await db.transaction((txn) async {
       for (final r in await txn.query('customers')) {
         await enqueueCustomer(txn, r['id'] as int);
@@ -1215,8 +1212,6 @@ class SyncQueueHelper {
       await enqueueAllUtilityBills(txn);
       // Due Reminders follow-ups (party customers mein upar aa chuki).
       await enqueueAllDueFollowups(txn);
-      // Hanna Installment: category / profile / zamin / saman / plan / wasooli (customers upar aa chuke).
-      await InstSync.enqueueAll(txn);
     });
   }
 

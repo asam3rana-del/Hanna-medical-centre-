@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/services/payment_info.dart';
-import 'package:hanna_installment/sync/sync_queue_helper.dart';
+import 'package:ah_developer_kiryana_store/services/payment_info.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_queue_helper.dart';
 
 void main() {
   final base = Uri.parse('https://wa.me/923001234567?text=${Uri.encodeComponent('Ali sahib, baqi Rs 2,500 hai.')}');

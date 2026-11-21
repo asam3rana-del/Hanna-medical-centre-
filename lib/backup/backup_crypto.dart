@@ -80,7 +80,7 @@ class BackupCrypto {
   /// IBB1 file ke bytes ko decrypt karta hai. Ghalat password / tamper => [BackupCryptoException].
   static Future<Uint8List> decryptBytes(Uint8List file, String password) async {
     if (!_startsWith(file, magic)) {
-      throw const BackupCryptoException('Ye file encrypted Hanna backup nahi hai');
+      throw const BackupCryptoException('Ye file encrypted IBTISAAM backup nahi hai');
     }
     const headerLen = 4 + saltLen + ivLen;
     if (file.length < headerLen + tagLen) {
@@ -106,7 +106,7 @@ class BackupCrypto {
   static Future<Uint8List> decryptLegacyCbc(Uint8List file, String password) async {
     const headerLen = 8 + saltLen + legacyIvLen;
     if (!_startsWith(file, legacyMagic) || file.length <= headerLen) {
-      throw const BackupCryptoException('Ye file encrypted Hanna backup nahi hai');
+      throw const BackupCryptoException('Ye file encrypted IBTISAAM backup nahi hai');
     }
     final salt = file.sublist(8, 8 + saltLen);
     final iv = file.sublist(8 + saltLen, headerLen);

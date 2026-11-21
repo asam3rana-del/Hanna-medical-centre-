@@ -2,10 +2,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:hanna_installment/models/misc_entities.dart';
-import 'package:hanna_installment/sync/sync_queue_dao.dart';
-import 'package:hanna_installment/sync/sync_repository.dart';
-import 'package:hanna_installment/sync/sync_types.dart';
+import 'package:ah_developer_kiryana_store/models/misc_entities.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_queue_dao.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_repository.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_types.dart';
 
 /// Phase 10: SyncQueueDao + SyncRepository.syncNow (push -> pull -> apply), Kotlin SyncRepository jaisa.
 class FakeBackend implements SyncBackend {

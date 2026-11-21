@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/due_reminders_repository.dart';
+import 'package:ah_developer_kiryana_store/db/due_reminders_repository.dart';
 
 DueBill bill(String id, {int? partyId = 1, double total = 100, double paid = 0, int createdAt = 1, bool isSale = true}) => DueBill(
       id: id,

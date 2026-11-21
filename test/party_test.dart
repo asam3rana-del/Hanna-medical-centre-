@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/party_repository.dart';
-import 'package:hanna_installment/models/misc_entities.dart';
-import 'package:hanna_installment/models/party.dart';
+import 'package:ah_developer_kiryana_store/db/party_repository.dart';
+import 'package:ah_developer_kiryana_store/models/misc_entities.dart';
+import 'package:ah_developer_kiryana_store/models/party.dart';
 
 Payment pay(
   int id, {

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hanna_installment/models/product.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
 
 void main() {
   const p = Product(barcode: '1', name: 'آلو بخارا', searchTag: 'Aloo Bukhara');

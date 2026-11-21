@@ -58,7 +58,7 @@ class EscPos {
 
   /// Kotlin `testPrint` ka plain-text slip (32 columns, 58mm).
   static String testText({String shopName = '', String connection = 'BLUETOOTH'}) {
-    final name = shopName.trim().isEmpty ? 'Hanna Installment' : shopName.trim();
+    final name = shopName.trim().isEmpty ? 'Hanna Medical Store' : shopName.trim();
     return '================================\n'
         '       TEST PRINT - 58mm\n'
         '================================\n'

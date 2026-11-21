@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/stock_audit_repository.dart';
-import 'package:hanna_installment/models/product.dart';
+import 'package:ah_developer_kiryana_store/db/stock_audit_repository.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
 
 Product prod(String name, String barcode, double stock, {String tag = ''}) =>
     Product(barcode: barcode, name: name, stock: stock, searchTag: tag);

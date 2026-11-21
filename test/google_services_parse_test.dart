@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/sync/cloud_config_store.dart';
+import 'package:ah_developer_kiryana_store/sync/cloud_config_store.dart';
 
 void main() {
   const sample = '''

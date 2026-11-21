@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/backup/downloads_copy.dart';
+import 'package:ah_developer_kiryana_store/backup/downloads_copy.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

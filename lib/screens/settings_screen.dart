@@ -24,22 +24,26 @@ import '../widgets/premium_header.dart';
 import '../widgets/role_guard.dart';
 import '../widgets/sync_section.dart';
 import '../sync/sync_repository.dart';
-import '../license/license_screen.dart';
 import 'about_screen.dart';
 import 'backup_export_screen.dart';
 import 'cash_screen.dart';
 import 'expense_screen.dart';
+import 'items_screen.dart';
 import 'login_screen.dart';
+import 'party_dashboard_screen.dart';
+import 'purchase_screen.dart';
 import 'recycle_bin_screen.dart';
+import 'reports_screen.dart';
+import 'sale_screen.dart';
+import 'setup_guide_screen.dart';
+import 'shell_ledger_screen.dart';
 import 'shop_rent_screen.dart';
 import 'user_management_screen.dart';
 import 'utility_bills_screen.dart';
 import 'workers_screen.dart';
+import 'zakat_screen.dart';
 import '../services/permissions.dart';
 import '../widgets/permission_guard.dart';
-import '../installment/shop_logo.dart';
-import '../installment/inst_report_screens.dart';
-import 'dart:io' as io;
 
 /// Receipt footer / address / currency / tax fields Kotlin mein user ke kehne par hata di gayi thin — yahan bhi nahi
 /// (stored receipt_footer value print par ab bhi parha jata hai, jaisa Kotlin mein).
@@ -48,10 +52,6 @@ import 'dart:io' as io;
 /// Login method: password / fingerprint / both / none. Dark mode switch.
 /// Printer (Phase 12) done — Bluetooth 58/80mm. Cloud Sync (Phase 10): `SyncSection` (Sync Now / Setup / History).
 /// OTP login (Phase 10): login method 'otp'. Backup row: BackupExportScreen (admin/manager).
-
-/// Hanna Installment: grocery POS ki settings (sale par stock, credit limit) chhupi hain. Wapas chahiye to true.
-const bool _posFeatures = false;
-
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -76,15 +76,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _allowShort = true;
   bool _compatPrint = false;
   bool _testing = false;
-  String? _logoPath; // Step 31: dukaan ka logo (PDF / receipt)
 
   @override
   void initState() {
     super.initState();
     _load();
-    ShopLogo.path().then((v) {
-      if (mounted) setState(() => _logoPath = v);
-    });
     Permissions.refresh().then((_) {
       if (mounted) setState(() {});
     });
@@ -118,12 +114,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _safePrint = await PrinterService.instance.safeMode();
     _compatPrint = await PrinterService.instance.compatibleMode();
     final m = await _repo.getSetting('login_method') ?? 'password';
-    if (m == 'otp') {
-      // OTP login hata diya (staff server set nahi) — pehle se laga ho to password par wapas.
-      await _setLoginMethod('password');
-      return;
-    }
-    if (mounted) setState(() => _loginMethod = const ['none', 'fingerprint', 'both'].contains(m) ? m : 'password');
+    if (mounted) setState(() => _loginMethod = const ['none', 'fingerprint', 'both', 'otp'].contains(m) ? m : 'password');
   }
 
   void _toast(String m) {
@@ -404,24 +395,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
     Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const LoginScreen()), (_) => false);
   }
 
-  String _loginMethodLabel(String m) => switch (m) {
-        'fingerprint' => Loc.t('Fingerprint Only', 'صرف فنگر پرنٹ'),
-        'both' => Loc.t('Both (Password + Fingerprint)', 'دونوں (پاس ورڈ + فنگر پرنٹ)'),
-        'none' => Loc.t('No Password', 'بغیر پاس ورڈ'),
-        _ => Loc.t('Password Only', 'صرف پاس ورڈ'),
-      };
-
-  Widget _card(String title, IconData icon, List<Widget> children) => Card(
+  /// [collapsible] = true: title par tap se khulta/band hota hai (shuru mein band) — lambi Settings ko chhota rakhne ke liye.
+  Widget _card(String title, IconData icon, List<Widget> children, {bool collapsible = false}) {
+    final header = Row(children: [
+      Icon(icon, color: ThemeManager.palette.navyInk),
+      const SizedBox(width: 8),
+      Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+    ]);
+    if (collapsible) {
+      return Card(
         margin: const EdgeInsets.only(bottom: 14),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [Icon(icon, color: ThemeManager.palette.navyInk), const SizedBox(width: 8), Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))]),
-            const SizedBox(height: 12),
-            ...children,
-          ]),
+        clipBehavior: Clip.antiAlias,
+        child: Theme(
+          // ExpansionTile ki upar/neeche ki lakeerein hatao (Card ke andar saaf dikhe).
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            key: PageStorageKey<String>('settings_card_$title'),
+            initiallyExpanded: false,
+            maintainState: true, // band karne par bhi text fields ka likha hua na jaye
+            tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            expandedCrossAxisAlignment: CrossAxisAlignment.start,
+            title: header,
+            children: children,
+          ),
         ),
       );
+    }
+    return Card(
+      margin: const EdgeInsets.only(bottom: 14),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          header,
+          const SizedBox(height: 12),
+          ...children,
+        ]),
+      ),
+    );
+  }
 
   Widget _tf(TextEditingController c, String label, {bool obscure = false, bool enabled = true, bool number = false}) => Padding(
         padding: const EdgeInsets.only(bottom: 10),
@@ -448,8 +460,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
           onTap: () => _open(screen),
         );
     return [
-      // Hanna Installment: Parties / Items / Reports / Sale / Purchase / Shell Ledger (grocery POS) hata diye.
-      row(Icons.verified_user_outlined, 'License', 'لائسنس', const LicenseScreen()),
+      row(Icons.people_outline, 'Parties', 'پارٹیز', const PartyDashboardScreen()),
+      row(Icons.list_alt, 'Items', 'آئٹمز', const ItemsScreen()),
+      if (Permissions.canAnyReport()) row(Icons.trending_up, 'Reports', 'رپورٹس', const ReportsScreen()),
+      row(Icons.receipt_outlined, 'Sale', 'سیل', const SaleScreen()),
+      if (Session.isAdmin)
+        row(Icons.shopping_cart_outlined, 'Purchase', 'خریداری',
+            const RoleGuard(allowed: {'admin'}, child: PurchaseScreen())),
       if (Permissions.can('expense'))
         row(Icons.business_center_outlined, 'Expense', 'اخراجات',
             const PermissionGuard(permission: 'expense', child: ExpenseScreen()), color: p.navyInk),
@@ -465,7 +482,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (Permissions.can('cash_register'))
         row(Icons.account_balance_outlined, 'Cash & Bank', 'کیش اور بینک',
             const PermissionGuard(permission: 'cash_register', child: CashScreen()), color: p.navyInk),
-      // Hanna Installment: Zakat hata diya (user ki darkhwast, 2026-11-14). Table / sync wahi (purana data mehfooz).
+      if (Permissions.can('zakat'))
+        row(Icons.volunteer_activism_outlined, 'Zakat', 'زکوٰۃ',
+            const PermissionGuard(permission: 'zakat', child: ZakatScreen()), color: p.navyInk),
+      if (Permissions.can('shell_ledger'))
+        row(Icons.inventory_2_outlined, 'Shell Ledger', 'شیل لیجر',
+            const PermissionGuard(permission: 'shell_ledger', child: ShellLedgerScreen()), color: p.navyInk),
     ];
   }
 
@@ -476,64 +498,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
       backgroundColor: ThemeManager.palette.bg,
       appBar: AppBar(backgroundColor: ThemeManager.palette.navy, foregroundColor: Colors.white, title: Text(Loc.t('Settings', 'سیٹنگز'))),
       body: ListView(padding: const EdgeInsets.all(16), children: [
-        PremiumHeader(title: _headerShop, subtitle: Loc.t('INSTALLMENT SHOP', 'قسط کی دکان')),
-        // Step 32: Reports dashboard se yahan (Admin / Manager).
-        if (Session.isAdminOrManager)
-          Card(
-            margin: const EdgeInsets.only(bottom: 12),
-            child: ListTile(
-              leading: Icon(Icons.insights_outlined, color: ThemeManager.palette.navyInk),
-              title: Text(Loc.t('Reports', 'رپورٹس'), style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text(Loc.t('Profit, sale, purchase, returns, stock, dues', 'منافع، سیل، خریداری، واپسی، اسٹاک، قسطیں')),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const InstReportsHubScreen())),
-            ),
-          ),
+        PremiumHeader(title: _headerShop, subtitle: Loc.t('POINT OF SALE', 'پوائنٹ آف سیل')),
         ..._linkRows(),
         const SizedBox(height: 6),
         if (admin)
           _card(Loc.t('Shop Information', 'دکان کی معلومات'), Icons.store, [
-            // Dukaan ka logo: receipt / plan PDF / reports ke upar (app ka naam / logo nahi).
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Row(children: [
-                Container(
-                  width: 64,
-                  height: 64,
-                  decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade400)),
-                  clipBehavior: Clip.antiAlias,
-                  child: _logoPath == null
-                      ? const Icon(Icons.storefront_outlined, size: 32)
-                      : Image.file(io.File(_logoPath!), fit: BoxFit.cover),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Wrap(spacing: 8, runSpacing: 6, children: [
-                    OutlinedButton.icon(
-                      onPressed: () async {
-                        final v = await ShopLogo.pick();
-                        if (v != null && mounted) setState(() => _logoPath = v);
-                      },
-                      icon: const Icon(Icons.image_outlined),
-                      label: Text(_logoPath == null ? Loc.t('Add shop logo', 'دکان کا لوگو لگائیں') : Loc.t('Change logo', 'لوگو بدلیں')),
-                    ),
-                    if (_logoPath != null)
-                      TextButton(
-                        onPressed: () async {
-                          await ShopLogo.remove();
-                          if (mounted) setState(() => _logoPath = null);
-                        },
-                        child: Text(Loc.t('Remove', 'ہٹائیں')),
-                      ),
-                  ]),
-                ),
-              ]),
-            ),
             _tf(_shopName, Loc.t('Shop Name', 'دکان کا نام')),
             _tf(_shopOwner, Loc.t('Owner Name', 'مالک کا نام')),
             _tf(_shopPhone, Loc.t('Phone', 'فون')),
-            // Default credit period (POS udhaar) — qist app mein istemal nahi, chhupa diya; purani value save par wahi rehti hai.
-            if (_posFeatures) _tf(_dueDays, Loc.t('Default credit period (days, 0 = off)', 'ڈیفالٹ ادھار مدت (دن، 0 = بند)'), number: true),
+            _tf(_dueDays, Loc.t('Default credit period (days, 0 = off)', 'ڈیفالٹ ادھار مدت (دن، 0 = بند)'), number: true),
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: TextField(
@@ -551,8 +524,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             FilledButton(onPressed: _saveShop, child: Text(Loc.t('SAVE SETTINGS', 'محفوظ کریں'))),
-          ]),
-        if (_posFeatures && admin)
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () => Navigator.of(context)
+                  .push(MaterialPageRoute(builder: (_) => const RoleGuard(allowed: {'admin'}, child: SetupGuideScreen())))
+                  .then((_) => _load()),
+              icon: const Icon(Icons.checklist_rtl),
+              label: Text(Loc.t('SHOP SETUP GUIDE (new shop)', 'دکان سیٹ اپ گائیڈ (نئی دکان)')),
+            ),
+          ], collapsible: true),
+        if (admin)
           _card(Loc.t('Sale', 'سیل'), Icons.point_of_sale, [
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
@@ -569,16 +550,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ]),
         if (admin)
-          // Tap par khulta hai; band ho to sirf mojooda tareeqa dikhta hai.
-          Card(
-            margin: const EdgeInsets.only(bottom: 14),
-            clipBehavior: Clip.antiAlias,
-            child: ExpansionTile(
-              leading: Icon(Icons.security, color: ThemeManager.palette.navyInk),
-              title: Text(Loc.t('Login Method', 'لاگ اِن کا طریقہ'), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              subtitle: Text(_loginMethodLabel(_loginMethod)),
-              childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-              children: [
+          _card(Loc.t('Login Method', 'لاگ اِن کا طریقہ'), Icons.security, [
             RadioListTile<String>(
               value: 'password', groupValue: _loginMethod, onChanged: (v) => _setLoginMethod(v!),
               title: Text(Loc.t('Password Only', 'صرف پاس ورڈ')),
@@ -596,10 +568,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: Text(Loc.t('No Password', 'بغیر پاس ورڈ')),
               subtitle: Text(Loc.t('App opens directly once signed in', 'ایک بار لاگ اِن کے بعد ایپ سیدھی کھلے گی')),
             ),
-              ],
+            RadioListTile<String>(
+              value: 'otp', groupValue: _loginMethod, onChanged: (v) => _setLoginMethod(v!),
+              title: Text(Loc.t('OTP (Phone Number)', 'OTP (فون نمبر)')),
+              subtitle: Text(Loc.t('Needs Cloud Sync Setup; staff phone in Manage Users', 'Cloud Sync Setup ضروری؛ اسٹاف کا فون Manage Users میں')),
+            ),
+          ], collapsible: true),
+        _card(Loc.t('Secure Cloud Login (staff)', 'سیکیور کلاؤڈ لاگ اِن (اسٹاف)'), Icons.verified_user, [
+          FutureBuilder<bool>(
+            future: StaffAuth.isEnabled(),
+            builder: (context, snap) => SwitchListTile(
+              value: snap.data ?? false,
+              onChanged: !Session.isAdmin
+                  ? null
+                  : (v) async {
+                      await StaffAuth.setEnabled(v);
+                      if (mounted) setState(() {});
+                    },
+              title: Text(Loc.t('Sign in to cloud with staff account', 'اسٹاف اکاؤنٹ سے کلاؤڈ میں سائن اِن')),
+              subtitle: Text(Loc.t(
+                  'OFF = current behaviour. ON needs the staff backend + App Check set up (see docs/STAFF_AUTH_BACKEND_SETUP.md); sync never falls back to anonymous.',
+                  'آف = موجودہ طریقہ۔ آن کے لیے اسٹاف بیک اینڈ + App Check سیٹ اپ ضروری ہے؛ سنک کبھی anonymous پر واپس نہیں جاتا۔')),
             ),
           ),
-        if (_posFeatures)
+        ]),
         _card(Loc.t('Credit limit override', 'کریڈٹ لیمٹ اجازت'), Icons.lock, [
           FutureBuilder<bool>(
             future: CreditOverridePolicy.managersOnly(),
@@ -618,7 +610,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
         ]),
-        if (_posFeatures)
         _card(Loc.t('Server credit-limit check', 'سرور کریڈٹ لیمٹ چیک'), Icons.shield, [
           FutureBuilder<bool>(
             future: const CreditGuard().isEnabled(),
@@ -637,13 +628,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
         ]),
-        // Admin: Users (Manage Users) mein har user ka password / naam. Staff: sirf apna password (username nahi).
-        if (!admin)
-          _card(Loc.t('Change my password', 'اپنا پاس ورڈ بدلیں'), Icons.person, [
-            _tf(TextEditingController(text: Session.username ?? ''), Loc.t('Username', 'یوزر نیم'), enabled: false),
-            _tf(_newPassword, Loc.t('New Password', 'نیا پاس ورڈ'), obscure: true),
-            FilledButton(onPressed: _updateLogin, child: Text(Loc.t('CHANGE PASSWORD', 'پاس ورڈ بدلیں'))),
-          ]),
+        _card(Loc.t('My Login', 'میرا لاگ اِن'), Icons.person, [
+          _tf(TextEditingController(text: Session.username ?? ''), Loc.t('Current Username', 'موجودہ یوزر نیم'), enabled: false),
+          _tf(_newUsername, Loc.t('New Username', 'نیا یوزر نیم')),
+          _tf(_newPassword, Loc.t('New Password', 'نیا پاس ورڈ'), obscure: true),
+          FilledButton(onPressed: _updateLogin, child: Text(Loc.t('UPDATE LOGIN', 'لاگ اِن اپڈیٹ کریں'))),
+        ], collapsible: true),
         _card(
           PrinterService.isDesktop
               ? Loc.t('Printer Setup (Windows / Network)', 'پرنٹر سیٹ اپ (ونڈوز / نیٹ ورک)')
@@ -665,14 +655,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(width: 10),
             Expanded(child: OutlinedButton(onPressed: _testing ? null : _testPrint, child: Text(Loc.t('TEST PRINT', 'ٹیسٹ پرنٹ')))),
           ]),
-          const SizedBox(height: 4),
-          // Sasti 58mm printers par print kharab aaye tab ke liye — aam tor par band rehta hai.
-          ExpansionTile(
-            tilePadding: EdgeInsets.zero,
-            childrenPadding: EdgeInsets.zero,
-            title: Text(Loc.t('Print not coming right? (Advanced)', 'پرنٹ ٹھیک نہیں آ رہا؟ (ایڈوانس)'),
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-            children: [
+          const SizedBox(height: 8),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             dense: true,
@@ -704,10 +687,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onPressed: _testing ? null : _testPrintText,
             child: Text(Loc.t('PLAIN TEXT TEST (English only)', 'سادہ ٹیکسٹ ٹیسٹ (صرف انگریزی)')),
           ),
-          const SizedBox(height: 8),
-            ],
-          ),
-        ]),
+        ], collapsible: true),
         // Kotlin Settings mein Backup/Export row (BackupExportScreen ka apna RoleGuard admin/manager).
         if (Session.isAdminOrManager)
           _card(Loc.t('Backup & Export', 'بیک اپ اور ایکسپورٹ'), Icons.save_outlined, [

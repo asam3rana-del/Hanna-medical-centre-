@@ -435,7 +435,7 @@ class PrinterService {
     if (p == null) return 'Pehle printer select karein';
     final dots = await dotsWidth();
     final lines = <ReceiptLine>[
-      RlCenter(shopName.isEmpty ? 'Hanna Installment' : shopName, bold: true),
+      RlCenter(shopName.isEmpty ? 'Hanna Medical Store' : shopName, bold: true),
       const RlCenter('TEST PRINT', bold: true),
       const RlDivider(),
       const RlLeft('Printer: OK'),

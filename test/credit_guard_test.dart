@@ -5,12 +5,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart' show Database;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:hanna_installment/db/app_database.dart';
-import 'package:hanna_installment/db/sale_repository.dart';
-import 'package:hanna_installment/db/stock_ledger.dart';
-import 'package:hanna_installment/models/product.dart';
-import 'package:hanna_installment/services/credit_guard.dart';
-import 'package:hanna_installment/services/session.dart';
+import 'package:ah_developer_kiryana_store/db/app_database.dart';
+import 'package:ah_developer_kiryana_store/db/sale_repository.dart';
+import 'package:ah_developer_kiryana_store/db/stock_ledger.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
+import 'package:ah_developer_kiryana_store/services/credit_guard.dart';
+import 'package:ah_developer_kiryana_store/services/session.dart';
 
 /// Server-side (cross-device) credit pre-check: the sale flow must
 ///  * stop BEFORE anything is written when the server says "blocked",

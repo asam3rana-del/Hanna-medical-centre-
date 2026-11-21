@@ -44,9 +44,6 @@ class PullResult {
   final List<SyncDoc> utilityBillPayments;
   final List<SyncDoc> dueFollowups;
 
-  /// Hanna Installment: collection naam -> documents (lib/installment/inst_sync.dart).
-  final Map<String, List<SyncDoc>> installment;
-
   /// Agli pull ka checkpoint (ms).
   final int serverTime;
 
@@ -80,7 +77,6 @@ class PullResult {
     this.utilityBills = const [],
     this.utilityBillPayments = const [],
     this.dueFollowups = const [],
-    this.installment = const {},
     int? serverTime,
   }) : serverTime = serverTime ?? DateTime.now().millisecondsSinceEpoch;
 }

@@ -3,8 +3,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:hanna_installment/backup/kotlin_import.dart';
-import 'package:hanna_installment/db/app_database.dart';
+import 'package:ah_developer_kiryana_store/backup/kotlin_import.dart';
+import 'package:ah_developer_kiryana_store/db/app_database.dart';
 
 /// Kotlin (Room v48) backup -> Flutter DB import. Source DB Room jaisi banai jati hai:
 /// `room_master_table`, user_version 48, aur extra columns (saleUid / lineUid / partyServerId).

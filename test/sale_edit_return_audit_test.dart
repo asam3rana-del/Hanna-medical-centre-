@@ -5,13 +5,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart' show Database;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:hanna_installment/db/app_database.dart';
-import 'package:hanna_installment/db/payment_repository.dart';
-import 'package:hanna_installment/db/reports_repository.dart';
-import 'package:hanna_installment/db/sale_repository.dart';
-import 'package:hanna_installment/db/stock_ledger.dart';
-import 'package:hanna_installment/models/product.dart';
-import 'package:hanna_installment/services/session.dart';
+import 'package:ah_developer_kiryana_store/db/app_database.dart';
+import 'package:ah_developer_kiryana_store/db/payment_repository.dart';
+import 'package:ah_developer_kiryana_store/db/reports_repository.dart';
+import 'package:ah_developer_kiryana_store/db/sale_repository.dart';
+import 'package:ah_developer_kiryana_store/db/stock_ledger.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
+import 'package:ah_developer_kiryana_store/services/session.dart';
 
 /// Audit (2026-10-30) fixes:
 ///  * bill-linked payment se kam total par edit rok diya jata hai (paise chupke se gayab na hon)

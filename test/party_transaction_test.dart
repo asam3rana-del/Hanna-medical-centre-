@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/party_transaction_repository.dart';
-import 'package:hanna_installment/models/misc_entities.dart';
+import 'package:ah_developer_kiryana_store/db/party_transaction_repository.dart';
+import 'package:ah_developer_kiryana_store/models/misc_entities.dart';
 
 // PartyTransactionActivity.kt ke PURE hisaab ka test (DB / UI ke bagair).
 // Numbers haath se nikaale gaye hain, taake Android ke saath mel khayen.

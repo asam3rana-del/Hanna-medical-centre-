@@ -298,6 +298,19 @@ class DueParty {
 
   bool get hasBalanceRow => bills.any((b) => b.isBalance && !b.isAdvance);
 
+  /// Maujooda qarz kab se: bache hue (FIFO ke baad) sab se purane bill ki tareekh. Customer ne sara purana baqi
+  /// chuka diya aur phir naya udhaar liya => yahan naye bill ki tareekh, purane wade / follow-up laagu nahi
+  /// ([entriesForCurrentDebt]). "Previous balance" (bina bill) row ho => 0 = shuruaat maloom nahi, sab laagu.
+  int get debtSince {
+    var since = 0;
+    for (final b in bills) {
+      if (b.isAdvance) continue;
+      if (b.isBalance || b.createdAt <= 0) return 0;
+      if (since == 0 || b.createdAt < since) since = b.createdAt;
+    }
+    return since;
+  }
+
   /// Jin asli bills par date nahi.
   int get undatedCount => bills.where((b) => !b.isBalance && !b.isAdvance && b.dueDate == 0).length;
 
@@ -1105,6 +1118,52 @@ class DueRemindersRepository {
     });
     if (ok) await CustomerRepository.instance.refresh();
     return ok;
+  }
+
+  /// Customer ke MOJOODA baqi (unpaid / partial) sale bills ki due date dobara nikaalo = bill date + [days].
+  /// Jab term badlta hai, purane bills bhi nayi muddat par aa jaate hain (warna wo purani chhoti date par Late dikhte hain).
+  /// Kitni bills badlin, wapas. [days] 0 => due date hata do (0).
+  Future<int> applyTermToOpenBills(int customerId, int days) async {
+    final db = await AppDatabase.instance.database;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final value = clampDueDays(days);
+    final rows = await db.query(
+      'sales',
+      columns: ['invoice', 'createdAt'],
+      // Sirf active, baqi wale (total - paid > 1 paisa).
+      where: "customerId = ? AND status = 'active' AND (total - paid) > 0.01",
+      whereArgs: [customerId],
+    );
+    if (rows.isEmpty) return 0;
+    var changed = 0;
+    await db.transaction((txn) async {
+      for (final r in rows) {
+        final invoice = r['invoice'] as String;
+        final createdAt = (r['createdAt'] as num?)?.toInt() ?? 0;
+        final due = value > 0 && createdAt > 0 ? dueDateAfterDays(createdAt, value) : 0;
+        final n = await txn.update(
+          'sales',
+          {'dueDate': due, 'updatedAt': now, 'dirty': 1},
+          where: 'invoice = ?',
+          whereArgs: [invoice],
+        );
+        if (n > 0) {
+          changed += n;
+          await SyncQueueHelper.enqueueSale(txn, invoice);
+        }
+      }
+    });
+    return changed;
+  }
+
+  /// Customer ki kitni baqi (unpaid/partial) active sale bills hain.
+  Future<int> openBillCount(int customerId) async {
+    final db = await AppDatabase.instance.database;
+    final r = await db.rawQuery(
+      "SELECT COUNT(*) AS c FROM sales WHERE customerId = ? AND status = 'active' AND (total - paid) > 0.01",
+      [customerId],
+    );
+    return r.isEmpty ? 0 : ((r.first['c'] as num?)?.toInt() ?? 0);
   }
 }
 

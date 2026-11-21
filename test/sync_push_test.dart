@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:hanna_installment/sync/sync_push_plan.dart';
-import 'package:hanna_installment/sync/sync_seed_fields.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_push_plan.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_seed_fields.dart';
 
 /// Phase 10: SyncApi.push ke SAAF faisle (Firestore ke baghair) + seedFields. Asli Firestore
 /// transactions device par test hongi (Firebase project chahiye).
@@ -11,7 +11,7 @@ void main() {
 
   group('collectionFor / ops', () {
     test('20 Kotlin entity types + 4 Workers + 2 Shop Rents + 2 Utility Bills + 1 Due Follow-ups; anjaan => null', () {
-      expect(pushCollections.length, 42);
+      expect(pushCollections.length, 29);
       expect(collectionFor('due_followup'), 'due_followups');
       expect(collectionFor('worker'), 'workers');
       expect(collectionFor('worker_attendance'), 'worker_attendance');

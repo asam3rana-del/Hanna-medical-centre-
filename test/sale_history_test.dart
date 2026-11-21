@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/sale_history_repository.dart';
+import 'package:ah_developer_kiryana_store/db/sale_history_repository.dart';
 
 SaleWithCustomer sale(String inv, String name, double total, int at, {String status = 'active'}) =>
     SaleWithCustomer(invoice: inv, customerName: name, total: total, paymentMethod: 'cash', createdAt: at, status: status);

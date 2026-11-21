@@ -4,12 +4,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:hanna_installment/db/app_database.dart';
-import 'package:hanna_installment/db/due_followup_repository.dart';
-import 'package:hanna_installment/db/due_reminders_repository.dart';
-import 'package:hanna_installment/models/collection_plan.dart';
-import 'package:hanna_installment/models/due_followup.dart';
-import 'package:hanna_installment/services/session.dart';
+import 'package:ah_developer_kiryana_store/db/app_database.dart';
+import 'package:ah_developer_kiryana_store/db/due_followup_repository.dart';
+import 'package:ah_developer_kiryana_store/db/due_reminders_repository.dart';
+import 'package:ah_developer_kiryana_store/models/collection_plan.dart';
+import 'package:ah_developer_kiryana_store/models/due_followup.dart';
+import 'package:ah_developer_kiryana_store/services/session.dart';
 
 // 15 Mar 2026, 14:30 local — din ke beech ka waqt.
 final now = DateTime(2026, 3, 15, 14, 30).millisecondsSinceEpoch;

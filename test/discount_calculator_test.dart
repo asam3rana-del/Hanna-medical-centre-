@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/utils/discount_calculator.dart';
+import 'package:ah_developer_kiryana_store/utils/discount_calculator.dart';
 
 // Kotlin `DiscountCalculatorTest` (test/pricing) ke 10 cases, Dart mein.
 void main() {

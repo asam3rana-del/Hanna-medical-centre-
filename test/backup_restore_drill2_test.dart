@@ -6,9 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:hanna_installment/backup/backup_helper.dart';
-import 'package:hanna_installment/backup/backup_password_store.dart';
-import 'package:hanna_installment/db/app_database.dart';
+import 'package:ah_developer_kiryana_store/backup/backup_helper.dart';
+import 'package:ah_developer_kiryana_store/backup/backup_password_store.dart';
+import 'package:ah_developer_kiryana_store/db/app_database.dart';
 
 /// Backup / restore drill, part 2 (improvement plan, P1 #7): restoring an OLDER-schema database (real legacy fixtures)
 /// and a clean-install restore on a "different device". GREEN (Migration tests #10) - now part of the release gate in test/ (copy kept in test_migration/).

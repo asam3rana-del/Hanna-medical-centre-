@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hanna_installment/models/return_entry.dart';
+import 'package:ah_developer_kiryana_store/models/return_entry.dart';
 
 void main() {
   ReturnEntry e(int id, double a, {int rd = 0, int d = 0}) => ReturnEntry(id: id, amount: a, returnDate: rd, date: d);

@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hanna_installment/sync/sync_queue_helper.dart';
-import 'package:hanna_installment/utils/bill_doc.dart';
-import 'package:hanna_installment/utils/receipt_lines.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_queue_helper.dart';
+import 'package:ah_developer_kiryana_store/utils/bill_doc.dart';
+import 'package:ah_developer_kiryana_store/utils/receipt_lines.dart';
 
 BillDoc _doc({String owner = '', bool purchase = false}) => BillDoc(
       isPurchase: purchase,

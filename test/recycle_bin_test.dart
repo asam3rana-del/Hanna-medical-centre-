@@ -6,23 +6,23 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart' show Database;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:hanna_installment/db/app_database.dart';
-import 'package:hanna_installment/db/expense_repository.dart';
-import 'package:hanna_installment/db/party_repository.dart';
-import 'package:hanna_installment/db/payment_repository.dart';
-import 'package:hanna_installment/db/product_repository.dart';
-import 'package:hanna_installment/db/purchase_history_repository.dart';
-import 'package:hanna_installment/db/purchase_repository.dart';
-import 'package:hanna_installment/db/recycle_bin_repository.dart';
-import 'package:hanna_installment/db/shop_rent_repository.dart';
-import 'package:hanna_installment/db/sale_repository.dart';
-import 'package:hanna_installment/db/stock_ledger.dart';
-import 'package:hanna_installment/db/worker_repository.dart';
-import 'package:hanna_installment/models/misc_entities.dart';
-import 'package:hanna_installment/models/party.dart';
-import 'package:hanna_installment/models/product.dart';
-import 'package:hanna_installment/models/sale.dart';
-import 'package:hanna_installment/services/session.dart';
+import 'package:ah_developer_kiryana_store/db/app_database.dart';
+import 'package:ah_developer_kiryana_store/db/expense_repository.dart';
+import 'package:ah_developer_kiryana_store/db/party_repository.dart';
+import 'package:ah_developer_kiryana_store/db/payment_repository.dart';
+import 'package:ah_developer_kiryana_store/db/product_repository.dart';
+import 'package:ah_developer_kiryana_store/db/purchase_history_repository.dart';
+import 'package:ah_developer_kiryana_store/db/purchase_repository.dart';
+import 'package:ah_developer_kiryana_store/db/recycle_bin_repository.dart';
+import 'package:ah_developer_kiryana_store/db/shop_rent_repository.dart';
+import 'package:ah_developer_kiryana_store/db/sale_repository.dart';
+import 'package:ah_developer_kiryana_store/db/stock_ledger.dart';
+import 'package:ah_developer_kiryana_store/db/worker_repository.dart';
+import 'package:ah_developer_kiryana_store/models/misc_entities.dart';
+import 'package:ah_developer_kiryana_store/models/party.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
+import 'package:ah_developer_kiryana_store/models/sale.dart';
+import 'package:ah_developer_kiryana_store/services/session.dart';
 
 /// Recycle Bin: delete par snapshot, restore par stock / balance / cash wapas, sync mein `_restore` upsert.
 void main() {

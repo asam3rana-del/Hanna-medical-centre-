@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/services/permissions.dart';
-import 'package:hanna_installment/services/session.dart';
+import 'package:ah_developer_kiryana_store/services/permissions.dart';
+import 'package:ah_developer_kiryana_store/services/session.dart';
 
 void main() {
   tearDown(() {

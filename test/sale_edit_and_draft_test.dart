@@ -1,12 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/sale_repository.dart';
-import 'package:hanna_installment/models/product.dart';
-import 'package:hanna_installment/models/sale.dart';
-import 'package:hanna_installment/services/sale_draft.dart';
-import 'package:hanna_installment/utils/bill_text.dart';
-import 'package:hanna_installment/utils/sale_cart.dart';
-import 'package:hanna_installment/utils/stock_touch_policy.dart';
+import 'package:ah_developer_kiryana_store/db/sale_repository.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
+import 'package:ah_developer_kiryana_store/models/sale.dart';
+import 'package:ah_developer_kiryana_store/services/sale_draft.dart';
+import 'package:ah_developer_kiryana_store/utils/bill_text.dart';
+import 'package:ah_developer_kiryana_store/utils/sale_cart.dart';
+import 'package:ah_developer_kiryana_store/utils/stock_touch_policy.dart';
 
 // 1 Carton = 4 Dozen = 48 Pcs. Primary rate Rs 600 / Carton.
 const _juice = Product(

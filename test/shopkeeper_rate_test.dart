@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/models/product.dart';
-import 'package:hanna_installment/utils/bulk_rate_planner.dart';
-import 'package:hanna_installment/utils/rate_list_export.dart';
-import 'package:hanna_installment/utils/rate_margin.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
+import 'package:ah_developer_kiryana_store/utils/bulk_rate_planner.dart';
+import 'package:ah_developer_kiryana_store/utils/rate_list_export.dart';
+import 'package:ah_developer_kiryana_store/utils/rate_margin.dart';
 
 Product _p(String b, {double cost = 0, double wholesale = 0, double shopkeeper = 0, String cat = 'A'}) =>
     Product(barcode: b, name: b, category: cat, cost: cost, wholesalePrice: wholesale, shopkeeperPrice: shopkeeper);

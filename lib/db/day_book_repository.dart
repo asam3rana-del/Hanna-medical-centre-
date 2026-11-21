@@ -109,14 +109,9 @@ String _statusNote(String status, double total, double paid) {
 ///  - blank            : plain manual Cash In/Out
 ///  - "manual-…"       : Receive Payment / Make Payment from a party
 ///  - "return:<bill>"  : dated reversal written by a sale/purchase return
-///  - "inst-pay:…"     : qist / advance wasooli (Hanna Installment)
 bool isStandaloneCash(CashTransaction c) {
   final r = c.reference.trim();
-  return r.isEmpty ||
-      c.reference.startsWith('manual-') ||
-      c.reference.startsWith('return:') ||
-      // Hanna Installment: qist / advance ki wasooli (lib/installment/inst_plan_repository.dart).
-      c.reference.startsWith('inst-pay:');
+  return r.isEmpty || c.reference.startsWith('manual-') || c.reference.startsWith('return:');
 }
 
 /// [linkedPaidByBill] = sum of `payments.amount` grouped by `billReference`

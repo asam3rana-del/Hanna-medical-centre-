@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hanna_installment/services/contact_picker.dart';
+import 'package:ah_developer_kiryana_store/services/contact_picker.dart';
 
 void main() {
   test('cleanPhoneNumber keeps digits and + only (Kotlin regex)', () {

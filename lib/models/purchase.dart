@@ -87,6 +87,10 @@ class PurchaseItem {
   /// Purchase ke waqt set kiya gaya Shopkeeper rate (0 = product ka shopkeeper rate nahi badla).
   final double shopkeeperRate;
 
+  /// Hanna Medical Store (DB v39): is line ka batch number aur expiry ("yyyy-MM", '' = nahi likha).
+  final String batchNo;
+  final String expiry;
+
   const PurchaseItem({
     this.id,
     required this.billNo,
@@ -100,6 +104,8 @@ class PurchaseItem {
     this.retailRate = 0.0,
     this.wholesaleRate = 0.0,
     this.shopkeeperRate = 0.0,
+    this.batchNo = '',
+    this.expiry = '',
   });
 
   Map<String, Object?> toMap() => {
@@ -115,6 +121,8 @@ class PurchaseItem {
         'retailRate': retailRate,
         'wholesaleRate': wholesaleRate,
         'shopkeeperRate': shopkeeperRate,
+        'batchNo': batchNo,
+        'expiry': expiry,
       };
 
   factory PurchaseItem.fromMap(Map<String, Object?> m) => PurchaseItem(
@@ -130,5 +138,7 @@ class PurchaseItem {
         retailRate: (m['retailRate'] as num?)?.toDouble() ?? 0.0,
         wholesaleRate: (m['wholesaleRate'] as num?)?.toDouble() ?? 0.0,
         shopkeeperRate: (m['shopkeeperRate'] as num?)?.toDouble() ?? 0.0,
+        batchNo: (m['batchNo'] as String?) ?? '',
+        expiry: (m['expiry'] as String?) ?? '',
       );
 }

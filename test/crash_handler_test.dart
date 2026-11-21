@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:hanna_installment/services/crash_handler.dart';
+import 'package:ah_developer_kiryana_store/services/crash_handler.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

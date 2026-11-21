@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/sale_repository.dart';
-import 'package:hanna_installment/models/product.dart';
+import 'package:ah_developer_kiryana_store/db/sale_repository.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
 
 // Kotlin `SaveSaleUseCaseTest` + `SaveQuickSaleUseCaseTest` ke validation cases.
 // Ye sab checks SaleRepository mein DB kholne se PEHLE hote hain, is liye yahan

@@ -2,12 +2,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:hanna_installment/sync/branch_config_store.dart';
-import 'package:hanna_installment/sync/settings_sync.dart';
-import 'package:hanna_installment/sync/sync_api.dart';
-import 'package:hanna_installment/sync/sync_queue_helper.dart';
-import 'package:hanna_installment/sync/sync_repository.dart';
-import 'package:hanna_installment/sync/sync_worker.dart';
+import 'package:ah_developer_kiryana_store/sync/branch_config_store.dart';
+import 'package:ah_developer_kiryana_store/sync/settings_sync.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_api.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_queue_helper.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_repository.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_worker.dart';
 
 /// Phase 10: SettingsSync (Kotlin `SettingsSync.kt`) ka logic — status dot, Cloud Setup ki jaanch aur
 /// Branch-change guard, Sync History (audit) parhna/saaf karna, Retry Now, Sync Now, wrong-branch input.

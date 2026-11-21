@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/app_info.dart';
-import 'package:hanna_installment/services/crash_reporter.dart';
+import 'package:ah_developer_kiryana_store/app_info.dart';
+import 'package:ah_developer_kiryana_store/services/crash_reporter.dart';
 
 void main() {
   test('clip keeps reports under the Firestore rule limit', () {

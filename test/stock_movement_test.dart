@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/stock_ledger.dart';
-import 'package:hanna_installment/models/product.dart';
-import 'package:hanna_installment/models/stock_movement.dart';
+import 'package:ah_developer_kiryana_store/db/stock_ledger.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
+import 'package:ah_developer_kiryana_store/models/stock_movement.dart';
 
 Product prod(String name, {String barcode = 'b', String category = '', String tag = ''}) =>
     Product(barcode: barcode, name: name, category: category, searchTag: tag);

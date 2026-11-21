@@ -3,14 +3,14 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:hanna_installment/db/app_database.dart';
-import 'package:hanna_installment/db/category_unit_repository.dart';
-import 'package:hanna_installment/db/customer_repository.dart';
-import 'package:hanna_installment/db/supplier_repository.dart';
-import 'package:hanna_installment/db/user_repository.dart';
-import 'package:hanna_installment/models/category_unit.dart' as models;
-import 'package:hanna_installment/models/misc_entities.dart';
-import 'package:hanna_installment/models/party.dart';
+import 'package:ah_developer_kiryana_store/db/app_database.dart';
+import 'package:ah_developer_kiryana_store/db/category_unit_repository.dart';
+import 'package:ah_developer_kiryana_store/db/customer_repository.dart';
+import 'package:ah_developer_kiryana_store/db/supplier_repository.dart';
+import 'package:ah_developer_kiryana_store/db/user_repository.dart';
+import 'package:ah_developer_kiryana_store/models/category_unit.dart' as models;
+import 'package:ah_developer_kiryana_store/models/misc_entities.dart';
+import 'package:ah_developer_kiryana_store/models/party.dart';
 
 /// Audit (2026-10-01): Customer / Supplier / User / Category / Unit repositories ke apne tests nahi the.
 /// Asal AppDatabase (temp folder, sqflite FFI) par — kotlin_import_test.dart jaisa setup.

@@ -4,10 +4,7 @@
 # Doosra project:                                               bash tools/deploy_indexes.sh <project-id>
 # Sirf indexes banata hai — rules / data ko nahi chhoota. Pehle se bane extra indexes delete NAHI hote.
 set -e
-PROJECT="${1:-}"
-# Hanna Installment: project ka naam LAZMI (POS ka live project galti se na badle).
-[ -n "$PROJECT" ] || { echo "Usage: bash deploy_indexes.sh <installment-firebase-project-id>"; exit 1; }
-[ "$PROJECT" != "my-grocery-pos-8a444" ] || { echo "Ye Hanna POS ka project hai — Installment ka naya project dein"; exit 1; }
+PROJECT="${1:-my-grocery-pos-8a444}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="${TMPDIR:-/tmp}/ah_indexes_deploy"
 rm -rf "$WORK" && mkdir -p "$WORK"

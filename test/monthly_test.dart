@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/monthly_repository.dart';
+import 'package:ah_developer_kiryana_store/db/monthly_repository.dart';
 
 int ms(int y, int m, int d) => DateTime(y, m, d, 12).millisecondsSinceEpoch;
 

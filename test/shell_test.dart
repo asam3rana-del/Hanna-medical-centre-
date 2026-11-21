@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/shell_repository.dart';
-import 'package:hanna_installment/models/shell.dart';
+import 'package:ah_developer_kiryana_store/db/shell_repository.dart';
+import 'package:ah_developer_kiryana_store/models/shell.dart';
 
 ShellCustomer c(String name, {String phone = '', int owed = 0}) =>
     ShellCustomer(name: name, phone: phone, shellsOwed: owed, createdAt: 0);

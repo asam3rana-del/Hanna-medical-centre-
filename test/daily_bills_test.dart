@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/daily_bills_repository.dart';
-import 'package:hanna_installment/db/party_reports_repository.dart';
+import 'package:ah_developer_kiryana_store/db/daily_bills_repository.dart';
+import 'package:ah_developer_kiryana_store/db/party_reports_repository.dart';
 
 ReportBill bill(String id, double total, double paid, int t) =>
     ReportBill(id: id, total: total, paid: paid, createdAt: t);

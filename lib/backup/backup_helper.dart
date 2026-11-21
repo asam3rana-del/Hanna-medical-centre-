@@ -21,8 +21,8 @@ import 'kotlin_import.dart';
 
 /// Mirrors BackupHelper.kt — live SQLite DB ka encrypted backup / safe restore.
 ///
-/// * Backup: `HannaInst_<deviceTag>_backup_<yyyy-MM-dd_HH-mm>.ibbackup` (IBB1 AES-GCM,
-///   Android jaisa format), app ke apne folder `Hanna Installment Backups` mein.
+/// * Backup: `IBTISAAM_<deviceTag>_backup_<yyyy-MM-dd_HH-mm>.ibbackup` (IBB1 AES-GCM,
+///   Android jaisa format), app ke apne folder `IBTISAAM POS Backups` mein.
 /// * Restore: temp file -> decrypt/copy -> SQLite header + schema check -> tabhi live DB badalti hai
 ///   (Kotlin audit #3 fix). Ghalat password / kharab file par live DB bilkul nahi chhuti.
 /// * Purane "IBAKV001" (AES-CBC) aur plain `.db` backups bhi restore ho jate hain.
@@ -41,7 +41,7 @@ class BackupHelper {
   /// Kotlin app ka backup import hua ho to uska khulasa (UI "Restore complete" mein dikhata hai); warna null.
   static String? lastImportSummary;
 
-  static const folderName = 'Hanna Installment Backups';
+  static const folderName = 'IBTISAAM POS Backups';
   static const backupExtension = 'ibbackup';
   static const _lastBackupKey = 'backup_throttle_last_backup_at_millis';
   static const _pendingDownloadsKey = 'backup_downloads_pending';
@@ -150,7 +150,7 @@ class BackupHelper {
 
     final stamp = DateFormat('yyyy-MM-dd_HH-mm').format(DateTime.now());
     final tag = await deviceTag();
-    final fileName = 'HannaInst_${tag}_backup_$stamp.$backupExtension';
+    final fileName = 'IBTISAAM_${tag}_backup_$stamp.$backupExtension';
     // Password pehle: Keystore kharab ho to yahin ruk jao (naya password nahi banta).
     final password = await BackupPasswordStore.getOrCreate();
     final dest = File(p.join((await backupFolder()).path, fileName));
@@ -218,7 +218,7 @@ class BackupHelper {
   /// Backup file ko share sheet (Drive / WhatsApp / Gmail ...) se bhejta hai.
   static Future<bool> shareBackup(File file) async {
     try {
-      final r = await Share.shareXFiles([XFile(file.path)], subject: 'Hanna Installment backup');
+      final r = await Share.shareXFiles([XFile(file.path)], subject: 'IBTISAAM POS backup');
       // Kahin bhi bheja (WhatsApp / Drive ...) => "bahar backup" ho gaya; sirf band (dismiss) kiya to nahi.
       if (r.status != ShareResultStatus.dismissed) await OffsiteBackup.markShared();
       return true;

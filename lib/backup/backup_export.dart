@@ -425,7 +425,7 @@ class BackupExport {
 
     final t = data.totals;
     List<pw.Widget> makeWidgets() => <pw.Widget>[
-      pw.Text('Hanna Installment - Business Backup Report',
+      pw.Text('Grocery POS - Business Backup Report',
           style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: _navy)),
       pw.SizedBox(height: 4),
       pw.Text('Period: ${rangeText(start, end)}     |     Generated: $gen',
@@ -506,7 +506,7 @@ class BackupExport {
   static Future<ExportFiles> run(int start, int end, String labelForFile) async {
     final data = await collect(start, end);
     final stamp = DateFormat('yyyy-MM-dd_HHmm').format(DateTime.now());
-    final baseName = 'HannaInstallment_Backup_${labelForFile}_$stamp';
+    final baseName = 'GroceryPOS_Backup_${labelForFile}_$stamp';
     final dir = Directory(p.join((await getTemporaryDirectory()).path, 'backups'));
     if (!await dir.exists()) await dir.create(recursive: true);
 

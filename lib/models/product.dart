@@ -46,6 +46,12 @@ class Product {
   /// Mirrors Product.quickSaleDefaultUnitIndex in Database.kt.
   final int quickSaleDefaultUnitIndex;
 
+  /// Hanna Medical Store (DB v39): dawai ka formula/salt, company, aur rack/shelf. Sab optional.
+  /// genericName + company bhi [matchesQuery] mein hain; same genericName = substitute dawai.
+  final String genericName;
+  final String company;
+  final String rackLocation;
+
   const Product({
     required this.barcode,
     required this.name,
@@ -75,9 +81,15 @@ class Product {
     this.searchTag = '',
     this.defaultUnitIndex = -1,
     this.quickSaleDefaultUnitIndex = -1,
+    this.genericName = '',
+    this.company = '',
+    this.rackLocation = '',
   });
 
   Product copyWith({
+    String? genericName,
+    String? company,
+    String? rackLocation,
     String? searchTag,
     int? defaultUnitIndex,
     int? quickSaleDefaultUnitIndex,
@@ -136,6 +148,9 @@ class Product {
         searchTag: searchTag ?? this.searchTag,
         defaultUnitIndex: defaultUnitIndex ?? this.defaultUnitIndex,
         quickSaleDefaultUnitIndex: quickSaleDefaultUnitIndex ?? this.quickSaleDefaultUnitIndex,
+        genericName: genericName ?? this.genericName,
+        company: company ?? this.company,
+        rackLocation: rackLocation ?? this.rackLocation,
     );
   }
 
@@ -168,6 +183,9 @@ class Product {
         'searchTag': searchTag,
         'defaultUnitIndex': defaultUnitIndex,
         'quickSaleDefaultUnitIndex': quickSaleDefaultUnitIndex,
+        'genericName': genericName,
+        'company': company,
+        'rackLocation': rackLocation,
       };
 
   factory Product.fromMap(Map<String, Object?> m) => Product(
@@ -199,6 +217,9 @@ class Product {
         searchTag: (m['searchTag'] as String?) ?? '',
         defaultUnitIndex: (m['defaultUnitIndex'] as num?)?.toInt() ?? -1,
         quickSaleDefaultUnitIndex: (m['quickSaleDefaultUnitIndex'] as num?)?.toInt() ?? -1,
+        genericName: (m['genericName'] as String?) ?? '',
+        company: (m['company'] as String?) ?? '',
+        rackLocation: (m['rackLocation'] as String?) ?? '',
       );
 }
 
@@ -423,7 +444,7 @@ extension ProductSearch on Product {
   bool matchesQuery(String query) {
     final q = query.trim();
     if (q.isEmpty) return true;
-    final haystack = '$name $searchTag'.toLowerCase();
+    final haystack = '$name $searchTag $genericName $company'.toLowerCase();
     final terms = q.toLowerCase().split(RegExp(r'\s+')).where((t) => t.isNotEmpty);
     return terms.every(haystack.contains);
   }

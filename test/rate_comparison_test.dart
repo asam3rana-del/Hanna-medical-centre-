@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/rate_comparison_repository.dart';
-import 'package:hanna_installment/models/product.dart';
+import 'package:ah_developer_kiryana_store/db/rate_comparison_repository.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
 
 void main() {
   test('groups by supplier, last = newest purchase, sorted cheapest last-rate first', () {

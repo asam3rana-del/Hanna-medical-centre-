@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/sale_repository.dart';
-import 'package:hanna_installment/models/product.dart';
-import 'package:hanna_installment/services/sale_hold_recall.dart';
-import 'package:hanna_installment/utils/sale_cart.dart';
+import 'package:ah_developer_kiryana_store/db/sale_repository.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
+import 'package:ah_developer_kiryana_store/services/sale_hold_recall.dart';
+import 'package:ah_developer_kiryana_store/utils/sale_cart.dart';
 
 // Sale-screen unit order is primary-first: [unit, secondaryUnit, tertiaryUnit].
 Product _oneTier() => const Product(barcode: 'b1', name: 'Rice', unit: 'kg');

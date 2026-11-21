@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/worker_repository.dart';
+import 'package:ah_developer_kiryana_store/db/worker_repository.dart';
 
 void main() {
   test('din/mahine ki chabi', () {

@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hanna_installment/models/party.dart';
-import 'package:hanna_installment/models/return_entry.dart';
-import 'package:hanna_installment/db/party_transaction_repository.dart';
-import 'package:hanna_installment/sync/sync_queue_helper.dart';
+import 'package:ah_developer_kiryana_store/models/party.dart';
+import 'package:ah_developer_kiryana_store/models/return_entry.dart';
+import 'package:ah_developer_kiryana_store/db/party_transaction_repository.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_queue_helper.dart';
 
 void main() {
   ReturnEntry e(int id, double a, {int d = 0, String note = ''}) => ReturnEntry(id: id, amount: a, date: d, note: note);

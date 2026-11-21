@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/zakat_repository.dart';
-import 'package:hanna_installment/models/zakat.dart';
-import 'package:hanna_installment/utils/hijri.dart';
+import 'package:ah_developer_kiryana_store/db/zakat_repository.dart';
+import 'package:ah_developer_kiryana_store/models/zakat.dart';
+import 'package:ah_developer_kiryana_store/utils/hijri.dart';
 
 void main() {
   group('Hijri conversion', () {

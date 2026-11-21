@@ -1,0 +1,746 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart' hide TextDirection;
+import 'package:share_plus/share_plus.dart';
+
+import '../db/customer_repository.dart';
+import '../db/daily_bills_repository.dart';
+import '../db/rent_repository.dart';
+import '../db/user_repository.dart';
+import '../models/party.dart';
+import '../services/whatsapp_sender.dart';
+import '../utils/slip_pdf_data.dart';
+import '../utils/slip_text.dart';
+import '../widgets/party_avatar.dart';
+import '../theme/theme_manager.dart';
+import '../utils/loc.dart';
+import '../utils/sale_cart.dart' show formatQty;
+import '../widgets/premium_header.dart';
+import '../widgets/slip_share.dart';
+import '../widgets/permission_guard.dart';
+
+/// "Aaj ke Bills" — ek din ki saari alag alag (Quick Sale) sales har customer ke ek bill ki tarah,
+/// saath mein pichla balance aur aaj ka balance. Sales/stock/balance ko koi tabdeeli nahi: sirf dikhana,
+/// share aur print.
+class DailyBillsScreen extends StatelessWidget {
+  const DailyBillsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) =>
+      const PermissionGuard(permission: 'daily_bills', child: _DailyBillsBody());
+}
+
+class _DailyBillsBody extends StatefulWidget {
+  const _DailyBillsBody();
+
+  @override
+  State<_DailyBillsBody> createState() => _DailyBillsBodyState();
+}
+
+class _DailyBillsBodyState extends State<_DailyBillsBody> {
+  DateTime _day = DateTime.now();
+  bool _loading = true;
+  List<DailyParty> _rows = const [];
+
+  /// Is din ke jin customers ko PDF bheji ja chuki (is device par, `app_settings` mein).
+  Set<int> _sent = {};
+
+  final _dateFmt = DateFormat('dd MMM yyyy');
+  final _timeFmt = DateFormat('hh:mm a');
+
+  AppPalette get _p => ThemeManager.palette;
+  /// Shop ka naam + phone center mein (monospace block), phir daily bill. WhatsApp aur Share dono mein.
+  Future<String> _billTextWithHeader(DailyParty r) async {
+    final shop = await loadShopHeader();
+    return slipHeaderBlock(shopName: shop.name, shopPhone: shop.phone) + dailyBillText(r, _day);
+  }
+
+  String get _sentKey => 'daily_pdf_sent_${DateFormat('yyyyMMdd').format(_day)}';
+
+  Future<Set<int>> _loadSent() async {
+    try {
+      final v = await UserRepository.instance.getSetting(_sentKey);
+      if (v == null || v.isEmpty) return {};
+      return v.split(',').map(int.tryParse).whereType<int>().toSet();
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> _markSent(Iterable<int> ids) async {
+    final next = {..._sent, ...ids};
+    if (mounted) setState(() => _sent = next);
+    try {
+      await UserRepository.instance.setSetting(_sentKey, next.join(','));
+    } catch (_) {}
+  }
+
+  /// Customer ka saved phone (khali ho to '' — tab aam share sheet khulti hai).
+  Future<String> _phoneOf(DailyParty r) async {
+    try {
+      for (final c in await CustomerRepository.instance.listAll()) {
+        if (c.id == r.id) return c.phone.trim();
+      }
+    } catch (_) {}
+    return '';
+  }
+
+  /// Daily Bill ka PDF (logo + shop header ke saath). Customer ka number ho (Android) to PDF seedha uski WhatsApp
+  /// chat mein khulti hai, warna share sheet. PDF na bane to bill ka text clipboard par copy ho jata hai.
+  Future<void> _sharePdf(DailyParty r) async {
+    final shop = await loadShopHeader();
+    var phone = await _phoneOf(r);
+    if (!mounted) return;
+    if (phone.isEmpty) {
+      // Number saved nahi: poochho taake PDF seedha WhatsApp chat mein khule (cancel => aam share sheet).
+      phone = await askWhatsAppNumber(context) ?? '';
+      if (!mounted) return;
+    }
+    final ok = await shareSlip(
+      context,
+      dailyBillSlipData(r, _day, shopName: shop.name, shopPhone: shop.phone),
+      fileBase: 'DailyBill_${r.name}',
+      fileName: slipCustomerFileName(r.name, 'Bill', _day),
+      fallbackText: await _billTextWithHeader(r),
+      whatsappPhone: phone,
+    );
+    if (ok) await _markSent([r.id]);
+  }
+
+  /// Is din ke sab customers ke bills ek hi PDF mein (har customer nayi page par).
+  Future<void> _shareAllPdf() async {
+    if (_rows.isEmpty) return;
+    final shop = await loadShopHeader();
+    if (!mounted) return;
+    final ok = await shareSlips(
+      context,
+      [for (final r in _rows) dailyBillSlipData(r, _day, shopName: shop.name, shopPhone: shop.phone)],
+      fileBase: 'DailyBills_${DateFormat('yyyy-MM-dd').format(_day)}',
+      fileName: slipCustomerFileName('All-Bills', 'Daily', _day),
+      subject: 'Daily Bills',
+    );
+    if (ok) await _markSent(_rows.map((r) => r.id));
+  }
+
+  /// Bill ka text (shop header ke sath) customer ki WhatsApp chat mein. Number saved na ho to poochta hai.
+  Future<void> _sendText(DailyParty r) async {
+    final phone = await _phoneOf(r);
+    final text = await _billTextWithHeader(r);
+    if (!mounted) return;
+    await sendOnWhatsApp(context, phone: phone, text: text);
+  }
+
+  /// Wahi text aam share sheet se (kisi bhi app mein).
+  Future<void> _shareText(DailyParty r, BuildContext btnContext) async {
+    final text = await _billTextWithHeader(r);
+    Rect? origin;
+    final box = btnContext.findRenderObject();
+    if (box is RenderBox && box.hasSize) origin = box.localToGlobal(Offset.zero) & box.size;
+    try {
+      await Share.share(text, subject: 'Daily Bill - ${r.name}', sharePositionOrigin: origin);
+    } catch (_) {
+      await Clipboard.setData(ClipboardData(text: text));
+      if (mounted) _toast(Loc.t('Copied', 'کاپی ہو گیا'));
+    }
+  }
+
+  String _rs(double v) => 'Rs ${v.round()}';
+  Color _balColor(double v) => v < 0 ? _p.red : _p.flatTealFg;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    List<DailyParty> rows;
+    try {
+      rows = await DailyBillsRepository.instance.loadDay(_day);
+    } catch (_) {
+      rows = const [];
+    }
+    if (!mounted) return;
+    final rentErr = RentRepository.lastError;
+    if (rentErr != null) _toast('Rent bills nahi ban sake: $rentErr');
+    final sent = await _loadSent();
+    if (!mounted) return;
+    setState(() {
+      _rows = rows;
+      _sent = sent;
+      _loading = false;
+    });
+  }
+
+  void _shift(int days) {
+    setState(() => _day = DateTime(_day.year, _day.month, _day.day + days));
+    _load();
+  }
+
+  Future<void> _pickDate() async {
+    final d = await showDatePicker(
+      context: context,
+      initialDate: _day,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 1)),
+    );
+    if (d == null) return;
+    setState(() => _day = d);
+    _load();
+  }
+
+  bool get _isToday {
+    final n = DateTime.now();
+    return n.year == _day.year && n.month == _day.month && n.day == _day.day;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final totalSales = _rows.fold<double>(0, (a, r) => a + r.salesTotal);
+    final totalReceived = _rows.fold<double>(0, (a, r) => a + r.receivedTotal);
+    return Scaffold(
+      backgroundColor: _p.bg,
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 30),
+          children: [
+            PremiumHeader(
+              title: Loc.t('Daily Bills', 'روزانہ بلز'),
+              subtitle: Loc.t('One bill per customer per day + balance', 'ہر کسٹمر کا دن کا ایک بل اور بیلنس'),
+              actionLabel: Loc.t('Daily Rent', 'روزانہ کرایہ'),
+              actionEmoji: '🔁',
+              onActionTap: _openRentSheet,
+              // Back arrow aur 3-dot menu bhi isi line mein (app bar hata diya).
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                onPressed: () => Navigator.maybePop(context),
+              ),
+              trailing: PopupMenuButton<String>(
+                iconColor: Colors.white,
+                onSelected: (v) => _dayOff(v == 'off'),
+                itemBuilder: (_) => [
+                  PopupMenuItem(value: 'off', child: Text(Loc.t('Remove rent for this day (holiday)', 'اس دن کا کرایہ ہٹائیں (چھٹی)'))),
+                  PopupMenuItem(value: 'on', child: Text(Loc.t('Restore rent for this day', 'اس دن کا کرایہ واپس لگائیں'))),
+                ],
+              ),
+            ),
+            _dateBar(),
+            if (!_loading && _rows.isNotEmpty) _summary(totalSales, totalReceived),
+            if (!_loading && _rows.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: OutlinedButton.icon(
+                  onPressed: _shareAllPdf,
+                  icon: const Icon(Icons.picture_as_pdf),
+                  label: Text(Loc.t('All bills in one PDF', 'سب بلز ایک پی ڈی ایف میں')),
+                ),
+              ),
+            if (_loading)
+              const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator()))
+            else if (_rows.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(30),
+                child: Center(
+                  child: Text(Loc.t('No sales on this day', 'اس دن کوئی سیل نہیں'),
+                      style: TextStyle(color: _p.textMuted, fontWeight: FontWeight.bold)),
+                ),
+              )
+            else
+              for (final r in _rows) _partyCard(r),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _dateBar() => Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        decoration: BoxDecoration(
+          color: _p.cardWhite,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _p.border),
+        ),
+        child: Row(children: [
+          IconButton(icon: const Icon(Icons.chevron_left), onPressed: () => _shift(-1)),
+          Expanded(
+            child: InkWell(
+              onTap: _pickDate,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Text(
+                  '${_isToday ? '${Loc.t('Today', 'آج')} • ' : ''}${_dateFmt.format(_day)}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: _p.textDark),
+                ),
+              ),
+            ),
+          ),
+          IconButton(icon: const Icon(Icons.chevron_right), onPressed: _isToday ? null : () => _shift(1)),
+        ]),
+      );
+
+  Widget _summary(double sales, double received) => Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: _p.cardWhite,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _p.border),
+        ),
+        child: Row(children: [
+          _stat(Loc.t('Customers', 'کسٹمرز'), '${_rows.length}', _p.textDark),
+          _stat(Loc.t('Total sales', 'کل سیل'), _rs(sales), _p.flatBlueFg),
+          _stat(Loc.t('Total received', 'کل وصول'), _rs(received), _p.flatTealFg),
+        ]),
+      );
+
+  Widget _stat(String label, String value, Color color) => Expanded(
+        child: Column(children: [
+          Text(label, style: TextStyle(fontSize: 11.5, color: _p.textMuted)),
+          const SizedBox(height: 3),
+          Text(value, style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold, color: color)),
+        ]),
+      );
+
+  Widget _kv(String k, String v, {Color? color, bool bold = false}) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2.5),
+        child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Text(k, style: TextStyle(fontSize: 13, color: _p.textMuted, fontWeight: bold ? FontWeight.bold : FontWeight.normal)),
+          Text(v, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: color ?? _p.textDark)),
+        ]),
+      );
+
+  Widget _partyCard(DailyParty r) => Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        decoration: BoxDecoration(
+          color: _p.cardWhite,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: _p.border),
+          boxShadow: const [BoxShadow(color: Color(0x0F000000), blurRadius: 4, offset: Offset(0, 1))],
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: () => _showDetail(r),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Row(children: [
+                PartyAvatar(isCustomer: true, partyId: r.id, name: r.name, radius: 18),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(r.name, style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: _p.textDark)),
+                ),
+                if (_sent.contains(r.id))
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.check_circle, size: 14, color: _p.flatTealFg),
+                      const SizedBox(width: 3),
+                      Text(Loc.t('PDF sent', 'پی ڈی ایف بھیجی'), style: TextStyle(fontSize: 11.5, color: _p.flatTealFg)),
+                    ]),
+                  ),
+                Text('${r.billCount} ${Loc.t('bills', 'بلز')}', style: TextStyle(fontSize: 12, color: _p.textMuted)),
+              ]),
+              const SizedBox(height: 8),
+              _kv(Loc.t('Previous balance', 'پچھلا بیلنس'), _rs(r.previousBalance), color: _balColor(r.previousBalance)),
+              _kv(Loc.t('Today\'s sale', 'آج کی سیل'), '+ ${_rs(r.salesTotal)}', color: _p.flatBlueFg),
+              if (r.receivedTotal > 0)
+                _kv(Loc.t('Received today', 'آج وصول'), '- ${_rs(r.receivedTotal)}', color: _p.flatTealFg),
+              Divider(height: 14, color: _p.border),
+              _kv(Loc.t('Today\'s balance', 'آج کا بیلنس'), _rs(r.closingBalance), color: _balColor(r.closingBalance), bold: true),
+            ]),
+          ),
+        ),
+      );
+
+  // ---- Daily Rent ------------------------------------------------------------------------
+
+  void _toast(String m) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  }
+
+  Future<void> _billOff(String invoice) async {
+    try {
+      await RentRepository.instance.setRentBillOff(invoice, off: true);
+      _toast(Loc.t('Rent removed', 'کرایہ ہٹا دیا گیا'));
+    } catch (e) {
+      _toast('$e');
+    }
+    await _load();
+  }
+
+  Future<void> _dayOff(bool off) async {
+    try {
+      final n = await RentRepository.instance.setDayOff(_day, off: off);
+      _toast(n == 0
+          ? Loc.t('No rent bill found for this day', 'اس دن کوئی کرایہ بل نہیں ملا')
+          : (off
+              ? Loc.t('Rent removed for $n customers (holiday)', '$n کسٹمرز کا کرایہ ہٹا دیا (چھٹی)')
+              : Loc.t('Rent restored for $n customers', '$n کسٹمرز کا کرایہ واپس لگا دیا')));
+    } catch (e) {
+      _toast('$e');
+    }
+    await _load();
+  }
+
+  Future<void> _openRentSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: _p.cardWhite,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      builder: (ctx) => _RentSheet(palette: _p),
+    );
+    await _load();
+  }
+
+  // ---- detail: ek customer ka poora din ka bill -------------------------------------------
+
+  Future<void> _showDetail(DailyParty r) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: _p.cardWhite,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.85,
+        maxChildSize: 0.95,
+        builder: (_, scroll) => ListView(
+          controller: scroll,
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          children: [
+            Row(children: [
+              PartyAvatar(
+                isCustomer: true,
+                partyId: r.id,
+                name: r.name,
+                radius: 24,
+                onTap: () => showPartyPhotoSheet(ctx, isCustomer: true, partyId: r.id),
+              ),
+              const SizedBox(width: 12),
+              Expanded(child: Text(r.name, style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: _p.textDark))),
+            ]),
+            Text(_dateFmt.format(_day), style: TextStyle(color: _p.textMuted)),
+            const SizedBox(height: 10),
+            _kv(Loc.t('Previous balance', 'پچھلا بیلنس'), _rs(r.previousBalance), color: _balColor(r.previousBalance), bold: true),
+            Divider(color: _p.border),
+            for (final b in r.bills) ...[
+              Row(children: [
+                Expanded(
+                  child: Text('${b.invoice}  •  ${_timeFmt.format(DateTime.fromMillisecondsSinceEpoch(b.time))}',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: _p.textDark)),
+                ),
+                Text(_rs(b.total), style: TextStyle(fontWeight: FontWeight.bold, color: _p.flatBlueFg)),
+              ]),
+              for (final i in b.items)
+                Padding(
+                  padding: const EdgeInsets.only(left: 8, top: 5),
+                  // FIX: Urdu naam + English unit/rate ek line mein milkar bidi (RTL/LTR) mein ulat-palat ho jate the.
+                  // Ab naam apni line mein (apni direction), neeche "qty unit × rate" hamesha left-to-right, amount right par.
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(i.product,
+                            textAlign: TextAlign.left,
+                            textDirection: _hasRtl(i.product) ? TextDirection.rtl : TextDirection.ltr,
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: _p.textDark)),
+                        Text(
+                          '${formatQty(i.qty)}${i.unit.isEmpty ? '' : ' ${i.unit}'} × ${i.unitPrice.toStringAsFixed(i.unitPrice == i.unitPrice.roundToDouble() ? 0 : 2)}',
+                          textDirection: _hasRtl(i.unit) ? TextDirection.rtl : TextDirection.ltr,
+                          style: TextStyle(fontSize: 12.5, color: _p.textMuted),
+                        ),
+                      ]),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(i.amount.round().toString(),
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: _p.textDark)),
+                  ]),
+                ),
+              if (b.paid > 0)
+                Padding(
+                  padding: const EdgeInsets.only(left: 8, top: 2),
+                  child: Text('${Loc.t('Paid', 'ادا')}: ${_rs(b.paid)}',
+                      style: TextStyle(fontSize: 12.5, color: _p.flatTealFg)),
+                ),
+              Divider(color: _p.border),
+            ],
+            for (final pm in r.payments)
+              _kv('${Loc.t('Payment received', 'ادائیگی ملی')} • ${_timeFmt.format(DateTime.fromMillisecondsSinceEpoch(pm.time))}',
+                  '- ${_rs(pm.amount)}', color: _p.flatTealFg),
+            _kv(Loc.t('Today\'s sale', 'آج کی سیل'), '+ ${_rs(r.salesTotal)}', color: _p.flatBlueFg),
+            if (r.receivedTotal > 0) _kv(Loc.t('Received today', 'آج وصول'), '- ${_rs(r.receivedTotal)}', color: _p.flatTealFg),
+            Divider(color: _p.border),
+            _kv(Loc.t('Today\'s balance', 'آج کا بیلنس'), _rs(r.closingBalance), color: _balColor(r.closingBalance), bold: true),
+            const SizedBox(height: 14),
+            for (final b in r.bills)
+              if (isRentInvoice(b.invoice))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      Navigator.pop(ctx);
+                      await _billOff(b.invoice);
+                    },
+                    icon: const Icon(Icons.beach_access),
+                    label: Text(Loc.t('Remove today\'s rent for this customer (holiday)', 'اس کسٹمر کا آج کا کرایہ ہٹائیں (چھٹی)')),
+                  ),
+                ),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF25D366), padding: const EdgeInsets.symmetric(vertical: 13)),
+              onPressed: () => _sharePdf(r),
+              icon: const Icon(Icons.picture_as_pdf),
+              label: Text(_sent.contains(r.id)
+                  ? Loc.t('Send PDF again (WhatsApp)', 'پی ڈی ایف دوبارہ بھیجیں (واٹس ایپ)')
+                  : Loc.t('Send PDF (WhatsApp)', 'پی ڈی ایف بھیجیں (واٹس ایپ)')),
+            ),
+            const SizedBox(height: 10),
+            Row(children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _sendText(r),
+                  icon: const Icon(Icons.chat, color: Color(0xFF25D366)),
+                  label: Text(Loc.t('WhatsApp text', 'واٹس ایپ ٹیکسٹ')),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Builder(
+                  builder: (bc) => OutlinedButton.icon(
+                    onPressed: () => _shareText(r, bc),
+                    icon: const Icon(Icons.share),
+                    label: Text(Loc.t('Share', 'شیئر')),
+                  ),
+                ),
+              ),
+            ]),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+/// Daily Rent setting: kin customers se roz rent aata hai, kitna, kis din se.
+class _RentSheet extends StatefulWidget {
+  final AppPalette palette;
+  const _RentSheet({required this.palette});
+
+  @override
+  State<_RentSheet> createState() => _RentSheetState();
+}
+
+class _RentSheetState extends State<_RentSheet> {
+  List<RentConfig> _configs = const [];
+  bool _loading = true;
+  final _dateFmt = DateFormat('dd MMM yyyy');
+
+  AppPalette get _p => widget.palette;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  Future<void> _reload() async {
+    final c = await RentRepository.instance.listConfigs();
+    if (!mounted) return;
+    setState(() {
+      _configs = c;
+      _loading = false;
+    });
+  }
+
+  void _toast(String m) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  }
+
+  Future<void> _edit({RentConfig? existing}) async {
+    final customers = await CustomerRepository.instance.listAll();
+    if (!mounted) return;
+    int? customerId = existing?.customerId;
+    final amountCtl = TextEditingController(
+        text: existing == null ? '' : existing.dailyRent.toStringAsFixed(existing.dailyRent == existing.dailyRent.roundToDouble() ? 0 : 2));
+    var start = existing == null ? DateTime.now() : DateTime.fromMillisecondsSinceEpoch(existing.startDay);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: Text(Loc.t('Daily Rent', 'روزانہ کرایہ')),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            DropdownButtonFormField<int>(
+              value: customerId,
+              isExpanded: true,
+              decoration: InputDecoration(labelText: Loc.t('Customer', 'کسٹمر')),
+              items: [
+                for (final Customer c in customers)
+                  if (c.id != null) DropdownMenuItem<int>(value: c.id, child: Text(c.name, overflow: TextOverflow.ellipsis)),
+              ],
+              onChanged: existing != null ? null : (v) => setD(() => customerId = v),
+            ),
+            TextField(
+              controller: amountCtl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(labelText: Loc.t('Daily rent (Rs)', 'روز کا کرایہ (روپے)')),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.calendar_today, size: 18),
+              label: Text('${Loc.t('Starting from', 'کس دن سے')}: ${_dateFmt.format(start)}'),
+              onPressed: () async {
+                final d = await showDatePicker(
+                  context: ctx,
+                  initialDate: start,
+                  firstDate: DateTime.now().subtract(const Duration(days: 366)),
+                  lastDate: DateTime.now(),
+                );
+                if (d != null) setD(() => start = d);
+              },
+            ),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(Loc.t('Cancel', 'منسوخ'))),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(Loc.t('Save', 'محفوظ'))),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+    final rent = double.tryParse(amountCtl.text.trim());
+    if (customerId == null || rent == null || rent <= 0) {
+      _toast(Loc.t('Customer and rent (more than 0) are required', 'کسٹمر اور کرایہ (0 سے زیادہ) ضروری ہے'));
+      return;
+    }
+    try {
+      await RentRepository.instance.setConfig(customerId: customerId!, dailyRent: rent, startDay: start);
+      // Aaj tak ke bills foran bana do.
+      final n = await RentRepository.instance.ensureRentUpTo(DateTime.now());
+      _toast(Loc.t('Rent set. $n days of rent bills created', 'کرایہ سیٹ ہو گیا۔ $n دن کے کرایہ بل بن گئے'));
+    } catch (e) {
+      _toast('$e');
+    }
+    await _reload();
+  }
+
+  /// Rent theek karo: chuni hui date se aaj tak ke rent bills poore (chhutti wale wapas, missing naye).
+  Future<void> _repair(RentConfig c) async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime(now.year, now.month, now.day - 2),
+      firstDate: now.subtract(const Duration(days: 366)),
+      lastDate: now,
+      helpText: Loc.t('Fix rent from which day?', 'کس دن سے کرایہ ٹھیک کریں؟'),
+    );
+    if (picked == null || !mounted) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(Loc.t('Fix rent?', 'کرایہ ٹھیک کریں؟')),
+        content: Text(Loc.t(
+            '${c.name}: from ${_dateFmt.format(picked)} till today, holiday days will be put back and missing days will be created (Rs ${c.dailyRent.round()} each). Days that are already fine keep their amount and are only re-sent for sync (so the other device gets them). Balance changes only for restored / new days.',
+            '${c.name}: ${_dateFmt.format(picked)} سے آج تک چھٹی والے دن واپس لگیں گے اور جو دن رہ گئے وہ بن جائیں گے (ہر دن Rs ${c.dailyRent.round()})۔ جو دن ٹھیک ہیں ان کی رقم وہی رہے گی، بس دوبارہ سنک کو بھیجے جائیں گے تاکہ دوسری ڈیوائس کو مل جائیں۔ بیلنس صرف واپس لگے یا نئے دنوں سے بدلے گا۔')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(Loc.t('Cancel', 'منسوخ'))),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(Loc.t('Fix', 'ٹھیک کریں'))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      final r = await RentRepository.instance.repairRent(c.customerId, picked);
+      final sync = r.resent > 0
+          ? Loc.t(' ${r.resent} existing bills re-sent for sync.', ' ${r.resent} موجود بل دوبارہ سنک کو بھیجے۔')
+          : '';
+      _toast((r.total == 0
+              ? Loc.t('Nothing to fix, all rent bills are already there.', 'کچھ ٹھیک کرنے کو نہیں، سب کرایہ بل موجود ہیں۔')
+              : Loc.t('Done: ${r.restored} holiday days put back, ${r.created} new days created.',
+                  'ہو گیا: ${r.restored} چھٹی والے دن واپس لگے، ${r.created} نئے دن بنے۔')) +
+          sync);
+    } catch (e) {
+      _toast('$e');
+    }
+    await _reload();
+  }
+
+  Future<void> _stop(RentConfig c) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(Loc.t('Stop rent?', 'کرایہ بند کریں؟')),
+        content: Text(Loc.t('Rent for ${c.name} will not be charged from now on. Old bills and balance stay as they are.',
+            '${c.name} کا کرایہ آگے سے نہیں لگے گا۔ پرانے بل اور بیلنس جیسے ہیں ویسے رہیں گے۔')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(Loc.t('No', 'نہیں'))),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(Loc.t('Stop', 'بند کریں'))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await RentRepository.instance.removeConfig(c.customerId);
+    } catch (e) {
+      _toast('$e');
+    }
+    await _reload();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 20 + MediaQuery.of(context).viewInsets.bottom),
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text(Loc.t('Daily Rent', 'روزانہ کرایہ'),
+            style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: _p.textDark)),
+        const SizedBox(height: 4),
+        Text(
+          Loc.t('Daily rent is added automatically to the customer\'s Daily Bill and balance every day. For a holiday, remove that day\'s rent from the Daily Bills menu. Set rent on one device only.',
+              'روز کا کرایہ ہر دن کسٹمر کے ڈیلی بل اور بیلنس میں خود جڑتا ہے۔ چھٹی والے دن کا کرایہ ڈیلی بلز کے مینو سے ہٹا دیں۔ کرایہ صرف ایک ڈیوائس پر سیٹ کریں۔'),
+          style: TextStyle(fontSize: 12.5, color: _p.textMuted),
+        ),
+        const SizedBox(height: 10),
+        if (_loading)
+          const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()))
+        else if (_configs.isEmpty)
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Center(child: Text(Loc.t('No rent customers yet', 'ابھی کوئی کرایہ کسٹمر نہیں'), style: TextStyle(color: _p.textMuted))),
+          )
+        else
+          Flexible(
+            child: ListView(shrinkWrap: true, children: [
+              for (final c in _configs)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(c.name, style: TextStyle(fontWeight: FontWeight.bold, color: _p.textDark)),
+                  subtitle: Text(
+                      'Rs ${c.dailyRent.round()} / ${Loc.t('day', 'دن')} • ${_dateFmt.format(DateTime.fromMillisecondsSinceEpoch(c.startDay))}'),
+                  onTap: () => _edit(existing: c),
+                  trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                    IconButton(
+                        tooltip: Loc.t('Fix rent', 'کرایہ ٹھیک کریں'),
+                        icon: const Icon(Icons.build_circle_outlined),
+                        onPressed: () => _repair(c)),
+                    IconButton(icon: const Icon(Icons.stop_circle_outlined), onPressed: () => _stop(c)),
+                  ]),
+                ),
+            ]),
+          ),
+        const SizedBox(height: 10),
+        FilledButton.icon(
+          onPressed: () => _edit(),
+          icon: const Icon(Icons.add),
+          label: Text(Loc.t('New rent customer', 'نیا کرایہ کسٹمر')),
+        ),
+      ]),
+    );
+  }
+}
+
+/// Text mein Urdu/Arabic harf hain? (naam ki direction chunne ke liye)
+bool _hasRtl(String t) => RegExp(r'[\u0600-\u06FF\u0750-\u077F]').hasMatch(t);

@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/party_dashboard_repository.dart';
-import 'package:hanna_installment/widgets/party_quick_add_menu.dart';
+import 'package:ah_developer_kiryana_store/db/party_dashboard_repository.dart';
+import 'package:ah_developer_kiryana_store/widgets/party_quick_add_menu.dart';
 
 PartyRow c(String name, {String phone = '', int id = 1}) =>
     PartyRow(id: id, name: name, phone: phone, closing: 0, isCustomer: true);

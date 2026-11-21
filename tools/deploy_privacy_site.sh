@@ -1,11 +1,9 @@
 #!/data/data/com.termux/files/usr/bin/env bash
-# Hanna Installment: privacy policy website Firebase Hosting par (self-contained).
-# Chalayein:  bash /sdcard/Download/deploy_privacy_site.sh <installment-firebase-project-id>
-# Natija:     https://<project-id>.web.app/privacy.html  (lib/app_info.dart privacyPolicyUrl bhi yahi rakhein)
+# Hanna POS: privacy policy website Firebase Hosting par (self-contained).
+# Chalayein:  bash /sdcard/Download/deploy_privacy_site.sh
+# Natija:     https://my-grocery-pos-8a444.web.app/privacy.html
 set -e
-PROJECT="${1:-}"
-[ -n "$PROJECT" ] || { echo "Usage: bash deploy_privacy_site.sh <installment-firebase-project-id>"; exit 1; }
-[ "$PROJECT" != "my-grocery-pos-8a444" ] || { echo "Ye Hanna POS ka project hai — Installment ka project dein"; exit 1; }
+PROJECT="${1:-my-grocery-pos-8a444}"
 command -v firebase >/dev/null 2>&1 || { echo "firebase CLI nahi mila"; exit 1; }
 WORK="$HOME/ah_privacy_site"
 rm -rf "$WORK" && mkdir -p "$WORK/public" && cd "$WORK"
@@ -13,11 +11,11 @@ printf '{\n  "hosting": { "public": "public", "cleanUrls": false }\n}\n' > fireb
 cat > public/index.html <<'AHPOS_EOF'
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hanna Installment — Hanna Solutions</title>
+<title>Hanna POS — Hanna Solutions</title>
 <style>body{margin:0;font:16px/1.6 system-ui,sans-serif;color:#16233a;background:#f6f8fb}main{max-width:640px;margin:0 auto;padding:40px 20px}a{color:#1f5fbf}</style>
 </head><body><main>
-<h1>Hanna Installment</h1>
-<p>Installment (qist) sales and bookkeeping app by <b>Asam Hameed</b> (Hanna Solutions), Ibtisaam Traders, Bhikhi, District Sheikhupura, Pakistan.</p>
+<h1>Hanna POS</h1>
+<p>Shop point-of-sale and bookkeeping app by <b>Asam Hameed</b> (Hanna Solutions), Ibtisaam Traders, Bhikhi.</p>
 <ul>
 <li><a href="privacy.html">Privacy Policy / پرائیویسی پالیسی</a></li>
 <li><a href="privacy.html#english">Delete my data</a> — see section 5</li>
@@ -31,7 +29,7 @@ cat > public/privacy.html <<'AHPOS_EOF'
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hanna Installment — Privacy Policy | Hanna Solutions</title>
+<title>Hanna POS — Privacy Policy | Hanna Solutions</title>
 <style>
   :root { --ink:#16233a; --muted:#5b6678; --line:#e3e7ee; --accent:#1f5fbf; }
   * { box-sizing: border-box; }
@@ -51,12 +49,12 @@ cat > public/privacy.html <<'AHPOS_EOF'
 </head>
 <body>
 <main>
-<h1>Hanna Installment — Privacy Policy</h1>
-<div class="meta">Developer: <b>Asam Hameed</b> (Hanna Solutions), Ibtisaam Traders, Bhikhi, District Sheikhupura, Pakistan · Last updated: 20 November 2026</div>
+<h1>Hanna POS — Privacy Policy</h1>
+<div class="meta">Developer: <b>Asam Hameed</b> (Hanna Solutions), Ibtisaam Traders, Bhikhi · Last updated: 11 November 2026</div>
 <div class="lang"><a href="#english">English</a><a href="#urdu">اردو</a></div>
 
 <section id="english">
-<p>Hanna Installment ("the app") is an installment (qist) sales and bookkeeping app for shops. It is used by the shop owner and the staff
+<p>Hanna POS ("the app") is a point-of-sale and bookkeeping app for shops. It is used by the shop owner and the staff
 the owner adds. This policy explains what information the app handles, where it is kept and how to have it deleted.</p>
 
 <h2>1. Information the app handles</h2>
@@ -65,12 +63,8 @@ the owner adds. This policy explains what information the app handles, where it 
       customer and supplier ledgers, worker, rent and utility records.</li>
   <li><b>People in those records:</b> names, phone numbers, notes and optional photos of customers, suppliers and workers,
       entered by the shop.</li>
-  <li><b>Installment customers and guarantors:</b> father's / husband's name, CNIC number, addresses, work details,
-      approximate monthly income, and photos taken by the shop (face, CNIC front and back, cheque / stamp paper).
-      These are collected by the shop to record who bought on installments and who guaranteed the payment.</li>
-  <li><b>Installment plans:</b> the item sold (model, IMEI / serial / engine / chassis number), price, advance,
-      schedule, payments received and late fines.</li>
   <li><b>Staff accounts:</b> username, display name and role. Passwords are stored only as a one-way hash, never as plain text.</li>
+  <li><b>Phone number for OTP login</b> (only if the shop turns OTP login on), verified through Google Firebase Authentication.</li>
   <li><b>A random device ID</b> created by Firebase, used to let a registered device sync with its own shop's data.</li>
 </ul>
 <p>The app does <b>not</b> show ads, does not use advertising or analytics trackers, and does not sell or rent any data.</p>
@@ -80,27 +74,22 @@ the owner adds. This policy explains what information the app handles, where it 
   <li><b>On the device</b> in the app's private database. This is always the main copy.</li>
   <li><b>Cloud sync (optional):</b> when the shop turns on Cloud Sync, records are copied to Google Cloud Firestore
       (Firebase) so the shop's devices stay in step. Each shop's data is kept under its own branch and access rules
-      allow only that shop's registered devices to read it. Data is sent over encrypted (HTTPS) connections.
-      With Cloud Sync on, customer and guarantor photos are also copied (in reduced size) so other devices of the
-      same shop can see them.</li>
+      allow only that shop's registered devices to read it. Data is sent over encrypted (HTTPS) connections.</li>
   <li><b>Backups:</b> backup files are encrypted with a password chosen by the shop (AES-256) and saved where the shop chooses.</li>
 </ul>
 
 <h2>3. Device permissions</h2>
 <ul>
-  <li><b>Camera / photos:</b> to take customer and guarantor photos and CNIC pictures for installment records (kept on the device,
-      and in the shop's own cloud branch only if Cloud Sync is on).</li>
-  <li><b>Camera (scanning):</b> to read IMEI / serial barcodes and printed numbers of stock items. This happens on the
-      device only; the camera picture is not saved or uploaded.</li>
+  <li><b>Camera / photos:</b> to scan supplier bills (text is read on the device; the picture is not uploaded) and to attach a party photo.</li>
   <li><b>Contacts:</b> only when you choose to pick a phone number from your contacts; only the chosen name and number are saved.</li>
   <li><b>Bluetooth, USB, local network (and on older Android, location for Bluetooth scanning):</b> only to find and use a receipt printer. Location is not stored or sent.</li>
-  <li><b>Notifications:</b> daily installment due / late reminders.</li>
+  <li><b>Notifications:</b> due-payment and collection reminders.</li>
   <li><b>Fingerprint / face unlock:</b> handled by your phone; the app never receives biometric data.</li>
   <li><b>Background sync:</b> keeps the shop's data in sync while the app is minimised.</li>
 </ul>
 
 <h2>4. Sharing</h2>
-<p>Information is shared only with the service providers needed to run the app — Google Firebase (database, anonymous device sign-in
+<p>Information is shared only with the service providers needed to run the app — Google Firebase (database, login,
 and hosting) — and only to provide those services. When the shop sends a bill or reminder by WhatsApp or SMS, that
 message goes through the app the shop chooses. We may disclose information if required by Pakistani law.</p>
 
@@ -124,18 +113,18 @@ so please keep your phone locked and your passwords and backup password private.
 <p>If this policy changes, the new version will be posted on this page with a new date.</p>
 
 <h2>9. Contact</h2>
-<div class="box">Asam Hameed — Hanna Solutions · Ibtisaam Traders, Bhikhi, District Sheikhupura, Punjab, Pakistan<br>
+<div class="box">Asam Hameed — Hanna Solutions · Ibtisaam Traders, Bhikhi<br>
 Email: <a href="mailto:hannasolutions1@gmail.com">hannasolutions1@gmail.com</a> · Phone / WhatsApp: <a href="tel:+923006296815">0300-6296815</a></div>
 </section>
 
 <section id="urdu" class="ur">
 <h2>اردو خلاصہ</h2>
-<p>Hanna Installment قسط پر سامان بیچنے اور حساب رکھنے والی ایپ ہے (Asam Hameed — Hanna Solutions، بھکھی، ضلع شیخوپورہ)۔</p>
+<p>Hanna POS دکان کا حساب کتاب رکھنے والی ایپ ہے (Asam Hameed — Hanna Solutions، بھکھی، ضلع شیخوپورہ)۔</p>
 <ul>
-  <li>ایپ میں وہی معلومات ہوتی ہیں جو دکان خود درج کرے: قسط پلان، وصولیاں، خرچے، اسٹاک (IMEI / سیریل)، گاہک اور ضامن کے نام، فون، شناختی کارڈ نمبر، پتہ اور تصویریں۔</li>
+  <li>ایپ میں وہی معلومات ہوتی ہیں جو دکان خود درج کرے: بِل، خریداری، ادائیگیاں، خرچے، اسٹاک، گاہک / سپلائر کے نام اور فون نمبر۔</li>
   <li>اصل ڈیٹا آپ کے فون میں رہتا ہے۔ کلاؤڈ سنک آن ہو تو Google Firebase پر صرف آپ کی دکان کی برانچ میں محفوظ ہوتا ہے۔</li>
   <li>پاس ورڈ سیدھا محفوظ نہیں ہوتا (ہیش)، بیک اپ پاس ورڈ سے انکرپٹڈ ہوتا ہے۔</li>
-  <li>کیمرہ صرف گاہک / ضامن کی تصویر اور شناختی کارڈ کے لیے، کانٹیکٹس صرف نمبر چننے کے لیے، بلوٹوتھ صرف پرنٹر کے لیے۔ کلاؤڈ سنک آن ہو تو تصویریں چھوٹی کر کے صرف آپ کی دکان کی برانچ میں جاتی ہیں۔</li>
+  <li>کیمرہ صرف بِل اسکین / تصویر کے لیے، کانٹیکٹس صرف نمبر چننے کے لیے، بلوٹوتھ صرف پرنٹر کے لیے۔</li>
   <li>کوئی اشتہار نہیں، کوئی ٹریکنگ نہیں، ڈیٹا کسی کو بیچا نہیں جاتا۔</li>
   <li>کلاؤڈ ڈیٹا یا اسٹاف اکاؤنٹ ختم کروانے کے لیے: <a href="mailto:hannasolutions1@gmail.com">hannasolutions1@gmail.com</a>
       یا واٹس ایپ <a href="https://wa.me/923006296815">0300-6296815</a> — 30 دن کے اندر ختم کر دیا جائے گا۔</li>

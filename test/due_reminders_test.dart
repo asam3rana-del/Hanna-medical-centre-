@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/due_reminders_repository.dart';
-import 'package:hanna_installment/models/purchase.dart';
-import 'package:hanna_installment/models/sale.dart';
+import 'package:ah_developer_kiryana_store/db/due_reminders_repository.dart';
+import 'package:ah_developer_kiryana_store/models/purchase.dart';
+import 'package:ah_developer_kiryana_store/models/sale.dart';
 
 // 15 Mar 2026, 14:30 local — din ke beech ka waqt.
 final now = DateTime(2026, 3, 15, 14, 30).millisecondsSinceEpoch;

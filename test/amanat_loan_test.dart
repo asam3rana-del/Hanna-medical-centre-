@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/due_reminders_repository.dart';
-import 'package:hanna_installment/models/party.dart';
-import 'package:hanna_installment/sync/sync_queue_helper.dart';
+import 'package:ah_developer_kiryana_store/db/due_reminders_repository.dart';
+import 'package:ah_developer_kiryana_store/models/party.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_queue_helper.dart';
 
 int day(int d) => DateTime(2026, 3, d).millisecondsSinceEpoch;
 

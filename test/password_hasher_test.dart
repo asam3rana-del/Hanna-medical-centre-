@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hanna_installment/utils/password_hasher.dart';
+import 'package:ah_developer_kiryana_store/utils/password_hasher.dart';
 
 // Kotlin `PasswordHasherTest` ke 8 cases, Dart mein.
 void main() {

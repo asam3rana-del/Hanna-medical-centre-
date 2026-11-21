@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/inventory_insights_repository.dart';
-import 'package:hanna_installment/models/product.dart';
-import 'package:hanna_installment/models/stock_movement.dart';
+import 'package:ah_developer_kiryana_store/db/inventory_insights_repository.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
+import 'package:ah_developer_kiryana_store/models/stock_movement.dart';
 
 Product prod(String name,
         {double stock = 10, String barcode = 'b', double reorder = 0, double cost = 0, double sale = 0, String unit = 'pcs'}) =>

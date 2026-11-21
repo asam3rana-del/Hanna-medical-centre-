@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/day_book_repository.dart';
-import 'package:hanna_installment/models/misc_entities.dart';
+import 'package:ah_developer_kiryana_store/db/day_book_repository.dart';
+import 'package:ah_developer_kiryana_store/models/misc_entities.dart';
 
 DayBookSaleRow sale(String inv, double total, double paid, {String status = 'active', int at = 1000}) =>
     DayBookSaleRow(invoice: inv, customerName: 'Ali', total: total, paid: paid, createdAt: at, status: status);

@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/items_repository.dart';
-import 'package:hanna_installment/models/category_unit.dart';
-import 'package:hanna_installment/models/product.dart';
-import 'package:hanna_installment/services/session.dart';
+import 'package:ah_developer_kiryana_store/db/items_repository.dart';
+import 'package:ah_developer_kiryana_store/models/category_unit.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
+import 'package:ah_developer_kiryana_store/services/session.dart';
 
 void main() {
   const products = [

@@ -1,12 +1,10 @@
-import 'dart:convert' show jsonEncode;
-
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
-import '../installment/inst_models.dart' show defaultInstCategories;
 import '../models/return_entry.dart';
 import '../services/demo_mode.dart';
 
+import 'return_undo_repository.dart';
 import 'stock_ledger.dart';
 
 /// Ports the Room schema from Database.kt table-for-table so data shape
@@ -15,15 +13,15 @@ import 'stock_ledger.dart';
 ///
 /// DB version starts at 1 here since this is a fresh Flutter DB file (not a
 /// migration of the existing Android SQLite file). If you later decide to
-/// import the existing IBTISAAM Kiryana Store data, add an import routine
+/// import the existing Hanna Medical Store data, add an import routine
 /// rather than trying to open the old .db file directly with a different
 /// schema version.
 class AppDatabase {
   AppDatabase._();
   static final AppDatabase instance = AppDatabase._();
 
-  static const _dbName = 'hanna_installment.db';
-  static const _dbVersion = 47;
+  static const _dbName = 'ah_developer_kiryana_store.db';
+  static const _dbVersion = 39;
 
   Database? _db;
 
@@ -117,7 +115,10 @@ class AppDatabase {
         dirty INTEGER NOT NULL DEFAULT 1,
         searchTag TEXT NOT NULL DEFAULT '',
         defaultUnitIndex INTEGER NOT NULL DEFAULT -1,
-        quickSaleDefaultUnitIndex INTEGER NOT NULL DEFAULT -1
+        quickSaleDefaultUnitIndex INTEGER NOT NULL DEFAULT -1,
+        genericName TEXT NOT NULL DEFAULT '',
+        company TEXT NOT NULL DEFAULT '',
+        rackLocation TEXT NOT NULL DEFAULT ''
       )
     ''');
 
@@ -244,7 +245,9 @@ class AppDatabase {
         itemName TEXT NOT NULL DEFAULT '',
         retailRate REAL NOT NULL DEFAULT 0,
         wholesaleRate REAL NOT NULL DEFAULT 0,
-        shopkeeperRate REAL NOT NULL DEFAULT 0
+        shopkeeperRate REAL NOT NULL DEFAULT 0,
+        batchNo TEXT NOT NULL DEFAULT '',
+        expiry TEXT NOT NULL DEFAULT ''
       )
     ''');
 
@@ -355,19 +358,20 @@ class AppDatabase {
       )
     ''');
 
-    for (final sql in [..._zakatTablesSql, ..._shellTablesSql, ..._stockMovementsSql, ..._rentTablesSql, ..._workerTablesSql, ..._shopRentTablesSql, ..._utilityBillTablesSql, ..._dueFollowupTablesSql, ...installmentTablesSql, ...installmentPlanTablesSql, ...installmentPriceTablesSql, ...installmentPurchaseTablesSql, ...installmentCashSaleTablesSql, ...installmentPurchaseReturnTablesSql, ...installmentSecurityTablesSql]) {
+    for (final sql in [..._zakatTablesSql, ..._shellTablesSql, ..._stockMovementsSql, ..._rentTablesSql, ..._workerTablesSql, ..._shopRentTablesSql, ..._utilityBillTablesSql, ..._dueFollowupTablesSql]) {
       batch.execute(sql);
-    }
-    final seedAt = DateTime.now().millisecondsSinceEpoch;
-    for (final row in _defaultInstCategoryRows(seedAt)) {
-      batch.insert('inst_categories', row);
     }
 
     // Seed defaults — mirrors the Kotlin app's first-run defaults.
     batch.execute(_recycleBinSql);
+    batch.execute(ReturnUndoRepository.createSql);
 
     batch.insert('categories', {'name': 'General'});
     batch.insert('units', {'name': 'pcs'});
+    // Hanna Medical Store: dawai ki aam units (naye install par).
+    for (final u in const ['tablet', 'capsule', 'strip', 'pack', 'box', 'bottle', 'tube', 'vial', 'ampoule', 'sachet']) {
+      batch.insert('units', {'name': u});
+    }
 
     await batch.commit(noResult: true);
   }
@@ -592,71 +596,16 @@ class AppDatabase {
       await _addColumnIfMissing(db, 'customers', 'qistPlan', "TEXT NOT NULL DEFAULT ''");
     }
     if (oldVersion < 38) {
-      // v38: Hanna Installment — customer_profiles (CNIC, walid, pata), inst_guarantors (zamin),
-      // inst_categories (Mobile / Bike / LCD... + pehchan fields), inst_items (har piece, IMEI / engine no.).
-      for (final sql in installmentTablesSql) {
-        await db.execute(sql);
-      }
-      final have = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM inst_categories')) ?? 0;
-      if (have == 0) {
-        for (final row in _defaultInstCategoryRows(DateTime.now().millisecondsSinceEpoch)) {
-          await db.insert('inst_categories', row);
-        }
-      }
+      // v38: return "undo" — return se pehle bill ka snapshot (galti se return wapas le aane ke liye). Local only.
+      await db.execute(ReturnUndoRepository.createSql);
     }
     if (oldVersion < 39) {
-      // v39: Hanna Installment Step 3 — qist plan, us ka schedule (har qist ki tareekh / raqam), aur wasooli.
-      for (final sql in installmentPlanTablesSql) {
-        await db.execute(sql);
-      }
-    }
-    if (oldVersion < 40) {
-      // v40: Hanna Installment Step 9 — stock ke rate ki tabdeeli ka record (purana -> naya, kis ne, kab).
-      for (final sql in installmentPriceTablesSql) {
-        await db.execute(sql);
-      }
-    }
-    if (oldVersion < 41) {
-      // v41: Hanna Installment — khareed (purchase): supplier, khareed ka bill, supplier ko adaigi; piece -> bill.
-      await _addColumnIfMissing(db, 'inst_items', 'purchaseId', 'INTEGER');
-      for (final sql in installmentPurchaseTablesSql) {
-        await db.execute(sql);
-      }
-    }
-    if (oldVersion < 42) {
-      // v42: Hanna Installment — naqd (cash) sale: piece bina qist ke bikta hai.
-      for (final sql in installmentCashSaleTablesSql) {
-        await db.execute(sql);
-      }
-    }
-    if (oldVersion < 43) {
-      // v43: supplier ko maal wapas (purchase return); naqd sale ka customer (customers list se, ikhtiyari).
-      await _addColumnIfMissing(db, 'inst_cash_sales', 'customerId', 'INTEGER');
-      for (final sql in installmentPurchaseReturnTablesSql) {
-        await db.execute(sql);
-      }
-    }
-    if (oldVersion < 44) {
-      // v44: naqd sale ki wapsi (customer ne saman wapas kiya, paise wapas): piece dobara stock, refund cash OUT.
-      await _addColumnIfMissing(db, 'inst_cash_sales', 'returnedAt', 'INTEGER');
-      await _addColumnIfMissing(db, 'inst_cash_sales', 'refund', 'REAL');
-      await _addColumnIfMissing(db, 'inst_cash_sales', 'returnNote', 'TEXT');
-      await _addColumnIfMissing(db, 'inst_cash_sales', 'refundCashTxId', 'INTEGER');
-    }
-    if (oldVersion < 45) {
-      // v45: customer blacklist (qist na dene wala / dhoka) — wajah aur tareekh; naye plan par warning.
-      await _addColumnIfMissing(db, 'customer_profiles', 'blockedReason', "TEXT NOT NULL DEFAULT ''");
-      await _addColumnIfMissing(db, 'customer_profiles', 'blockedAt', 'INTEGER NOT NULL DEFAULT 0');
-    }
-    if (oldVersion < 46) {
-      // v46: plan ke saath liye gaye security cheque / stamp paper (plan ke doc mein sync).
-      for (final sql in installmentSecurityTablesSql) {
-        await db.execute(sql);
-      }
-    }
-    if (oldVersion < 47) {
-      // v47: register ka khata number (customer profile).
-      await _addColumnIfMissing(db, 'customer_profiles', 'khataNo', "TEXT NOT NULL DEFAULT ''");
+      // v39 (Hanna Medical Store): dawai ka formula / company / rack, aur purchase line ka batch + expiry.
+      await _addColumnIfMissing(db, 'products', 'genericName', "TEXT NOT NULL DEFAULT ''");
+      await _addColumnIfMissing(db, 'products', 'company', "TEXT NOT NULL DEFAULT ''");
+      await _addColumnIfMissing(db, 'products', 'rackLocation', "TEXT NOT NULL DEFAULT ''");
+      await _addColumnIfMissing(db, 'purchase_items', 'batchNo', "TEXT NOT NULL DEFAULT ''");
+      await _addColumnIfMissing(db, 'purchase_items', 'expiry', "TEXT NOT NULL DEFAULT ''");
     }
     // products.searchTag was added to _onCreate WITHOUT a migration step, so a database created by the
     // earliest builds (schema v1) never got the column. Found by the real-file migration test
@@ -966,294 +915,6 @@ class AppDatabase {
       )
     ''',
   ];
-
-  /// Hanna Installment (v38). Abhi sirf is device par (sync agle step mein, `serverId` / `updatedAt` pehle se rakhe hain).
-  /// `customer_profiles.customerId` = POS ki `customers.id` (customer ka ledger / payments wahi rehta hai).
-  static const installmentTablesSql = <String>[
-    '''
-      CREATE TABLE IF NOT EXISTS customer_profiles (
-        customerId INTEGER PRIMARY KEY NOT NULL,
-        fatherName TEXT NOT NULL DEFAULT '',
-        cnic TEXT NOT NULL DEFAULT '',
-        phone2 TEXT NOT NULL DEFAULT '',
-        address TEXT NOT NULL DEFAULT '',
-        occupation TEXT NOT NULL DEFAULT '',
-        workAddress TEXT NOT NULL DEFAULT '',
-        monthlyIncome REAL NOT NULL DEFAULT 0,
-        note TEXT NOT NULL DEFAULT '',
-        createdAt INTEGER NOT NULL DEFAULT 0,
-        updatedAt INTEGER NOT NULL DEFAULT 0,
-        serverId TEXT,
-        blockedReason TEXT NOT NULL DEFAULT '',
-        blockedAt INTEGER NOT NULL DEFAULT 0,
-        khataNo TEXT NOT NULL DEFAULT ''
-      )
-    ''',
-    'CREATE INDEX IF NOT EXISTS index_customer_profiles_cnic ON customer_profiles (cnic)',
-    '''
-      CREATE TABLE IF NOT EXISTS inst_guarantors (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        customerId INTEGER NOT NULL,
-        name TEXT NOT NULL,
-        fatherName TEXT NOT NULL DEFAULT '',
-        cnic TEXT NOT NULL DEFAULT '',
-        phone TEXT NOT NULL DEFAULT '',
-        address TEXT NOT NULL DEFAULT '',
-        relation TEXT NOT NULL DEFAULT '',
-        occupation TEXT NOT NULL DEFAULT '',
-        createdAt INTEGER NOT NULL DEFAULT 0,
-        updatedAt INTEGER NOT NULL DEFAULT 0,
-        serverId TEXT
-      )
-    ''',
-    'CREATE INDEX IF NOT EXISTS index_inst_guarantors_customer ON inst_guarantors (customerId)',
-    '''
-      CREATE TABLE IF NOT EXISTS inst_categories (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        idFields TEXT NOT NULL DEFAULT '[]',
-        sortOrder INTEGER NOT NULL DEFAULT 0,
-        createdAt INTEGER NOT NULL DEFAULT 0,
-        updatedAt INTEGER NOT NULL DEFAULT 0,
-        serverId TEXT
-      )
-    ''',
-    '''
-      CREATE TABLE IF NOT EXISTS inst_items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        categoryId INTEGER NOT NULL,
-        brand TEXT NOT NULL DEFAULT '',
-        model TEXT NOT NULL,
-        color TEXT NOT NULL DEFAULT '',
-        idValues TEXT NOT NULL DEFAULT '{}',
-        costPrice REAL NOT NULL DEFAULT 0,
-        cashPrice REAL NOT NULL DEFAULT 0,
-        warrantyMonths INTEGER NOT NULL DEFAULT 0,
-        supplier TEXT NOT NULL DEFAULT '',
-        note TEXT NOT NULL DEFAULT '',
-        status TEXT NOT NULL DEFAULT 'in_stock',
-        purchaseDate INTEGER NOT NULL DEFAULT 0,
-        createdAt INTEGER NOT NULL DEFAULT 0,
-        updatedAt INTEGER NOT NULL DEFAULT 0,
-        serverId TEXT,
-        purchaseId INTEGER
-      )
-    ''',
-    'CREATE INDEX IF NOT EXISTS index_inst_items_category ON inst_items (categoryId, status)',
-  ];
-
-  /// v39: qist plan. `inst_plans.itemId` = `inst_items.id` (plan banne par item `sold`). `guarantorIds` = JSON [id].
-  /// `inst_schedule` = har qist (seq 1..n). `inst_payments.kind` = advance | installment; `fine` = late fine
-  /// (qist ke hisaab mein nahi ginta). `cashTxId` = saath bani `cash_transactions` row (aaj ke cash mein).
-  static const installmentPlanTablesSql = <String>[
-    '''
-      CREATE TABLE IF NOT EXISTS inst_plans (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        planNo TEXT NOT NULL DEFAULT '',
-        customerId INTEGER NOT NULL,
-        itemId INTEGER NOT NULL,
-        guarantorIds TEXT NOT NULL DEFAULT '[]',
-        cashPrice REAL NOT NULL DEFAULT 0,
-        costPrice REAL NOT NULL DEFAULT 0,
-        advance REAL NOT NULL DEFAULT 0,
-        profitMode TEXT NOT NULL DEFAULT 'percent',
-        profitValue REAL NOT NULL DEFAULT 0,
-        profit REAL NOT NULL DEFAULT 0,
-        totalPrice REAL NOT NULL DEFAULT 0,
-        installmentTotal REAL NOT NULL DEFAULT 0,
-        count INTEGER NOT NULL DEFAULT 1,
-        frequency TEXT NOT NULL DEFAULT 'monthly',
-        firstDueDate INTEGER NOT NULL DEFAULT 0,
-        roundTo INTEGER NOT NULL DEFAULT 1,
-        lateFee REAL NOT NULL DEFAULT 0,
-        graceDays INTEGER NOT NULL DEFAULT 0,
-        status TEXT NOT NULL DEFAULT 'active',
-        note TEXT NOT NULL DEFAULT '',
-        createdBy TEXT NOT NULL DEFAULT '',
-        createdAt INTEGER NOT NULL DEFAULT 0,
-        updatedAt INTEGER NOT NULL DEFAULT 0,
-        closedAt INTEGER NOT NULL DEFAULT 0,
-        serverId TEXT
-      )
-    ''',
-    'CREATE INDEX IF NOT EXISTS index_inst_plans_customer ON inst_plans (customerId, status)',
-    '''
-      CREATE TABLE IF NOT EXISTS inst_schedule (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        planId INTEGER NOT NULL,
-        seq INTEGER NOT NULL,
-        dueDate INTEGER NOT NULL,
-        amount REAL NOT NULL,
-        serverId TEXT,
-        UNIQUE (planId, seq)
-      )
-    ''',
-    '''
-      CREATE TABLE IF NOT EXISTS inst_payments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        planId INTEGER NOT NULL,
-        kind TEXT NOT NULL DEFAULT 'installment',
-        amount REAL NOT NULL DEFAULT 0,
-        fine REAL NOT NULL DEFAULT 0,
-        method TEXT NOT NULL DEFAULT 'cash',
-        note TEXT NOT NULL DEFAULT '',
-        cashTxId INTEGER,
-        receivedBy TEXT NOT NULL DEFAULT '',
-        paidAt INTEGER NOT NULL DEFAULT 0,
-        createdAt INTEGER NOT NULL DEFAULT 0,
-        serverId TEXT
-      )
-    ''',
-    'CREATE INDEX IF NOT EXISTS index_inst_payments_plan ON inst_payments (planId, paidAt)',
-  ];
-
-  /// v40: rate tabdeeli. `itemId` = inst_items.id. Cash (naqd bechne ki) qeemat hamesha; cost sirf jab badli ho.
-  static const installmentPriceTablesSql = <String>[
-    '''
-      CREATE TABLE IF NOT EXISTS inst_price_changes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        itemId INTEGER NOT NULL,
-        oldCash REAL NOT NULL DEFAULT 0,
-        newCash REAL NOT NULL DEFAULT 0,
-        oldCost REAL NOT NULL DEFAULT 0,
-        newCost REAL NOT NULL DEFAULT 0,
-        note TEXT NOT NULL DEFAULT '',
-        changedBy TEXT NOT NULL DEFAULT '',
-        changedAt INTEGER NOT NULL DEFAULT 0,
-        serverId TEXT
-      )
-    ''',
-    'CREATE INDEX IF NOT EXISTS index_inst_price_changes_item ON inst_price_changes (itemId, changedAt)',
-  ];
-
-  /// v41: khareed. Supplier ka baqi = openingBalance + SUM(purchases.total) - SUM(payments.amount).
-  /// `inst_items.purchaseId` = kis bill se aaya (column: inst_items create + v41 migration; index nahi — pieces kam hote hain).
-  static const installmentPurchaseTablesSql = <String>[
-    '''
-      CREATE TABLE IF NOT EXISTS inst_suppliers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        phone TEXT NOT NULL DEFAULT '',
-        address TEXT NOT NULL DEFAULT '',
-        note TEXT NOT NULL DEFAULT '',
-        openingBalance REAL NOT NULL DEFAULT 0,
-        createdAt INTEGER NOT NULL DEFAULT 0,
-        updatedAt INTEGER NOT NULL DEFAULT 0,
-        serverId TEXT
-      )
-    ''',
-    '''
-      CREATE TABLE IF NOT EXISTS inst_purchases (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        billNo TEXT NOT NULL DEFAULT '',
-        supplierId INTEGER NOT NULL,
-        purchaseDate INTEGER NOT NULL DEFAULT 0,
-        total REAL NOT NULL DEFAULT 0,
-        note TEXT NOT NULL DEFAULT '',
-        createdBy TEXT NOT NULL DEFAULT '',
-        createdAt INTEGER NOT NULL DEFAULT 0,
-        updatedAt INTEGER NOT NULL DEFAULT 0,
-        serverId TEXT
-      )
-    ''',
-    'CREATE INDEX IF NOT EXISTS index_inst_purchases_supplier ON inst_purchases (supplierId, purchaseDate)',
-    '''
-      CREATE TABLE IF NOT EXISTS inst_supplier_payments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        supplierId INTEGER NOT NULL,
-        purchaseId INTEGER,
-        amount REAL NOT NULL DEFAULT 0,
-        method TEXT NOT NULL DEFAULT 'cash',
-        note TEXT NOT NULL DEFAULT '',
-        paidBy TEXT NOT NULL DEFAULT '',
-        paidAt INTEGER NOT NULL DEFAULT 0,
-        cashTxId INTEGER,
-        createdAt INTEGER NOT NULL DEFAULT 0,
-        updatedAt INTEGER NOT NULL DEFAULT 0,
-        serverId TEXT
-      )
-    ''',
-    'CREATE INDEX IF NOT EXISTS index_inst_supplier_payments_supplier ON inst_supplier_payments (supplierId, paidAt)',
-  ];
-
-  /// v42: naqd sale. `costPrice` = bechte waqt piece ki khareed (munafa ke liye; baad ka rate badalna isay nahi badalta).
-  static const installmentCashSaleTablesSql = <String>[
-    '''
-      CREATE TABLE IF NOT EXISTS inst_cash_sales (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        saleNo TEXT NOT NULL DEFAULT '',
-        itemId INTEGER NOT NULL,
-        customerName TEXT NOT NULL DEFAULT '',
-        phone TEXT NOT NULL DEFAULT '',
-        price REAL NOT NULL DEFAULT 0,
-        costPrice REAL NOT NULL DEFAULT 0,
-        method TEXT NOT NULL DEFAULT 'cash',
-        note TEXT NOT NULL DEFAULT '',
-        soldBy TEXT NOT NULL DEFAULT '',
-        soldAt INTEGER NOT NULL DEFAULT 0,
-        cashTxId INTEGER,
-        createdAt INTEGER NOT NULL DEFAULT 0,
-        updatedAt INTEGER NOT NULL DEFAULT 0,
-        serverId TEXT,
-        customerId INTEGER,
-        returnedAt INTEGER,
-        refund REAL,
-        returnNote TEXT,
-        refundCashTxId INTEGER
-      )
-    ''',
-    'CREATE INDEX IF NOT EXISTS index_inst_cash_sales_sold ON inst_cash_sales (soldAt)',
-  ];
-
-  /// v43: supplier ko wapas kiya piece (ek row = ek piece). `amount` = supplier ke khate se kam (aam taur par khareed qeemat).
-  static const installmentPurchaseReturnTablesSql = <String>[
-    '''
-      CREATE TABLE IF NOT EXISTS inst_purchase_returns (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        supplierId INTEGER NOT NULL,
-        purchaseId INTEGER,
-        itemId INTEGER NOT NULL,
-        amount REAL NOT NULL DEFAULT 0,
-        note TEXT NOT NULL DEFAULT '',
-        returnedBy TEXT NOT NULL DEFAULT '',
-        returnedAt INTEGER NOT NULL DEFAULT 0,
-        createdAt INTEGER NOT NULL DEFAULT 0,
-        updatedAt INTEGER NOT NULL DEFAULT 0,
-        serverId TEXT
-      )
-    ''',
-    'CREATE INDEX IF NOT EXISTS index_inst_purchase_returns_supplier ON inst_purchase_returns (supplierId, returnedAt)',
-  ];
-
-  /// v46: plan ki zamanat — security cheque / stamp paper / doosre kaghzat. `returnedAt` > 0 = customer ko wapas.
-  /// Alag cloud collection nahi: plan ke sync doc mein `securities` list (schedule ki tarah).
-  static const installmentSecurityTablesSql = <String>[
-    '''
-      CREATE TABLE IF NOT EXISTS inst_securities (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        planId INTEGER NOT NULL,
-        kind TEXT NOT NULL DEFAULT 'cheque',
-        number TEXT NOT NULL DEFAULT '',
-        bank TEXT NOT NULL DEFAULT '',
-        amount REAL NOT NULL DEFAULT 0,
-        note TEXT NOT NULL DEFAULT '',
-        returnedAt INTEGER NOT NULL DEFAULT 0,
-        createdAt INTEGER NOT NULL DEFAULT 0
-      )
-    ''',
-    'CREATE INDEX IF NOT EXISTS index_inst_securities_plan ON inst_securities (planId)',
-  ];
-
-  static List<Map<String, Object?>> _defaultInstCategoryRows(int now) => [
-        for (var i = 0; i < defaultInstCategories.length; i++)
-          {
-            'name': defaultInstCategories[i].$1,
-            'idFields': jsonEncode(defaultInstCategories[i].$2),
-            'sortOrder': i,
-            'createdAt': now,
-            'updatedAt': now,
-          }
-      ];
 
   /// Safe ALTER TABLE: skips if the column already exists (e.g. a device that
   /// got the column from an earlier test build), so upgrade never crashes.

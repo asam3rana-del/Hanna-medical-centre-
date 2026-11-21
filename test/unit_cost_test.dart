@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/unit_cost.dart';
-import 'package:hanna_installment/db/party_transaction_repository.dart';
+import 'package:ah_developer_kiryana_store/db/unit_cost.dart';
+import 'package:ah_developer_kiryana_store/db/party_transaction_repository.dart';
 
 /// Cost per smallest unit ek hi jagah (unit_cost.dart) se — carton/dozen wale items par
 /// cost kabhi factor guna ziyada nahi aani chahiye.

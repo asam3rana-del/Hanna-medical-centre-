@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:hanna_installment/db/app_database.dart';
+import 'package:ah_developer_kiryana_store/db/app_database.dart';
 
 /// Database migration tests, part 2 (improvement plan, P0 #4): start versions BELOW v20.
 ///
@@ -41,16 +41,8 @@ void main() {
 
   // version -> what that migration step added (removed when rewinding to a version below it)
   final steps = <_Step>[
-    _Step(47, columns: {'customer_profiles': ['khataNo']}),
-    _Step(46, tables: ['inst_securities']),
-    _Step(45, columns: {'customer_profiles': ['blockedReason', 'blockedAt']}),
-    _Step(44, columns: {'inst_cash_sales': ['returnedAt', 'refund', 'returnNote', 'refundCashTxId']}),
-    _Step(43, tables: ['inst_purchase_returns'], columns: {'inst_cash_sales': ['customerId']}),
-    _Step(42, tables: ['inst_cash_sales']),
-    _Step(41, tables: ['inst_supplier_payments', 'inst_purchases', 'inst_suppliers'], columns: {'inst_items': ['purchaseId']}),
-    _Step(40, tables: ['inst_price_changes']),
-    _Step(39, tables: ['inst_payments', 'inst_schedule', 'inst_plans']),
-    _Step(38, tables: ['inst_items', 'inst_categories', 'inst_guarantors', 'customer_profiles']),
+    _Step(39, columns: {'products': ['genericName', 'company', 'rackLocation'], 'purchase_items': ['batchNo', 'expiry']}),
+    _Step(38, tables: ['return_undo']),
     _Step(37, columns: {'customers': ['paySchedule', 'qistPlan']}),
     _Step(36, columns: {'due_followups': ['serverId', 'partyServerId']}),
     _Step(35, tables: ['due_followups']),

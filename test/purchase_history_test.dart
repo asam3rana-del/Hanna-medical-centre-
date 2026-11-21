@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/purchase_history_repository.dart';
-import 'package:hanna_installment/utils/bill_text.dart';
+import 'package:ah_developer_kiryana_store/db/purchase_history_repository.dart';
+import 'package:ah_developer_kiryana_store/utils/bill_text.dart';
 
 PurchaseHistoryRow row(String bill, String sup, double total, double paid, {String status = 'active', int at = 1}) =>
     PurchaseHistoryRow(billNo: bill, supplierName: sup, total: total, paid: paid, createdAt: at, status: status);

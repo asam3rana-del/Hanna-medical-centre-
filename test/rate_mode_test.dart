@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hanna_installment/models/party.dart';
-import 'package:hanna_installment/models/product.dart';
-import 'package:hanna_installment/utils/rate_mode.dart';
+import 'package:ah_developer_kiryana_store/models/party.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
+import 'package:ah_developer_kiryana_store/utils/rate_mode.dart';
 
 void main() {
   const rice = Product(barcode: '1', name: 'Rice', salePrice: 120, wholesalePrice: 110, shopkeeperPrice: 104);

@@ -30,8 +30,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
   final _miscDesc = TextEditingController();
 
   String _method = 'cash';
-  // Step 32: categories nahi — har kharcha Miscellaneous, wajah description mein.
-  String _category = ExpenseCategories.miscellaneous;
+  String _category = ExpenseCategories.all.first;
   bool _miscOpen = false; // "Add description" expanded
   bool _saving = false; // double-tap guard
 
@@ -151,7 +150,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
       _miscDesc.clear();
       setState(() {
         _miscOpen = false;
-        _category = ExpenseCategories.miscellaneous;
+        _category = ExpenseCategories.all.first;
         _method = 'cash';
       });
       await _reload();
@@ -319,8 +318,8 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
       );
 
   Widget _form(AppPalette p) {
-    const showToggle = false;
-    final showDesc = _isMisc;
+    final showToggle = _isMisc && !_miscOpen && _miscDesc.text.trim().isEmpty;
+    final showDesc = _isMisc && (_miscOpen || _miscDesc.text.trim().isNotEmpty);
     return Container(
       padding: const EdgeInsets.all(22),
       decoration: _cardDeco(p, 24),
@@ -333,6 +332,9 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
           inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))],
           decoration: _fieldDeco(p, Loc.t('Amount', 'رقم')),
         ),
+        const SizedBox(height: 14),
+        _label(p, Loc.t('Expense Category', 'خرچہ کیٹیگری')),
+        _dropdown(p, _category, ExpenseCategories.all, (v) => setState(() => _category = v)),
         const SizedBox(height: 14),
         _label(p, Loc.t('Paid From', 'کہاں سے ادا کیا')),
         _dropdown(p, _method, const ['cash', 'bank'], (v) => setState(() => _method = v)),

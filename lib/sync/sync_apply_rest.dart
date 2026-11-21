@@ -2,7 +2,6 @@
 import 'package:sqflite/sqflite.dart';
 
 import '../db/maintenance_sync.dart';
-import '../installment/inst_sync.dart' show applyInstallmentChanges;
 import 'sync_queue_dao.dart';
 import 'sync_queue_helper.dart';
 import 'sync_types.dart';
@@ -78,8 +77,6 @@ Future<void> applyRestOfServerChanges(
   // Due Reminders follow-ups: party (customers) upar apply ho chuki; na mile to partyId 0 rehti hai aur
   // `relinkOrphanedParties` baad mein jod deti hai.
   await applyDueFollowups(db, c.dueFollowups, nowMs: nowMs);
-  // Hanna Installment: customers / cash_transactions upar aa chuke (profile / payment unhi se judte hain).
-  await applyInstallmentChanges(db, c.installment, nowMs: nowMs);
 }
 
 // -------------------------------------------------------------------- sales
@@ -287,6 +284,9 @@ Future<void> applyPurchases(DatabaseExecutor db, List<SyncDoc> rows, {required i
           'wholesaleRate': _d(im['wholesaleRate']) ?? 0.0,
           // Purane device ki entry mein field nahi => 0 (kuch nahi tootta).
           'shopkeeperRate': _d(im['shopkeeperRate']) ?? 0.0,
+          // Hanna Medical Store: batch + expiry
+          if (im.containsKey('batchNo')) 'batchNo': _s(im['batchNo']) ?? '',
+          if (im.containsKey('expiry')) 'expiry': _s(im['expiry']) ?? '',
         });
       }
       if (items.isNotEmpty) {
@@ -531,6 +531,12 @@ Future<void> applyReturns(DatabaseExecutor db, List<SyncDoc> rows, {required int
   for (final row in rows) {
     final serverId = _s(row['serverId']);
     if (serverId == null) continue;
+    // Return undo se return delete ho sakti hai: tombstone aaye to local row bhi hatao (warna
+    // ek device par undo kiya hua return doosre device ki Returns Report mein reh jata hai).
+    if (row['_deleted'] == true) {
+      await db.delete('returns', where: 'serverId = ?', whereArgs: [serverId]);
+      continue;
+    }
     if (await _findBy(db, 'returns', 'serverId', serverId) != null) continue;
     final reference = _s(row['reference']);
     final type = _s(row['type']);

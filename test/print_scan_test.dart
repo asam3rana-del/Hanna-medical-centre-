@@ -2,12 +2,12 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/services/printer_service.dart';
-import 'package:hanna_installment/services/usb_printer.dart';
-import 'package:hanna_installment/utils/bill_doc.dart';
-import 'package:hanna_installment/utils/bill_scan_parser.dart';
-import 'package:hanna_installment/utils/escpos.dart';
-import 'package:hanna_installment/utils/receipt_lines.dart';
+import 'package:ah_developer_kiryana_store/services/printer_service.dart';
+import 'package:ah_developer_kiryana_store/services/usb_printer.dart';
+import 'package:ah_developer_kiryana_store/utils/bill_doc.dart';
+import 'package:ah_developer_kiryana_store/utils/bill_scan_parser.dart';
+import 'package:ah_developer_kiryana_store/utils/escpos.dart';
+import 'package:ah_developer_kiryana_store/utils/receipt_lines.dart';
 
 BillDoc _doc(int n, {bool purchase = false}) => BillDoc(
       isPurchase: purchase,
@@ -273,7 +273,7 @@ void _desktopPrinterTests() {
 
     test('test slip uses shop name or default and shows connection', () {
       expect(EscPos.testText(shopName: ' Ali Store ', connection: 'NETWORK'), contains('Ali Store'));
-      expect(EscPos.testText(), contains('Hanna Installment'));
+      expect(EscPos.testText(), contains('Hanna Medical Store'));
       expect(EscPos.testText(connection: 'USB'), contains('Connection: USB'));
     });
   });

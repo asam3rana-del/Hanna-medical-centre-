@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/cost_backfill.dart';
+import 'package:ah_developer_kiryana_store/db/cost_backfill.dart';
 
 void main() {
   PendingLine line(int id, {double cost = 100, double pendingQty = 10, double pendingEst = 100, String log = ''}) =>

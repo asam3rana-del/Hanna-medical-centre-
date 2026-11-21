@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/due_reminders_repository.dart';
-import 'package:hanna_installment/models/due_followup.dart';
-import 'package:hanna_installment/services/credit_risk.dart';
+import 'package:ah_developer_kiryana_store/db/due_reminders_repository.dart';
+import 'package:ah_developer_kiryana_store/models/due_followup.dart';
+import 'package:ah_developer_kiryana_store/services/credit_risk.dart';
 
 // 15 Mar 2026, 14:30 local.
 final now = DateTime(2026, 3, 15, 14, 30).millisecondsSinceEpoch;

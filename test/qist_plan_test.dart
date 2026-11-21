@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/due_reminders_repository.dart';
-import 'package:hanna_installment/models/collection_autopilot.dart';
-import 'package:hanna_installment/models/party.dart';
-import 'package:hanna_installment/models/qist_plan.dart';
-import 'package:hanna_installment/sync/sync_queue_helper.dart';
+import 'package:ah_developer_kiryana_store/db/due_reminders_repository.dart';
+import 'package:ah_developer_kiryana_store/models/collection_autopilot.dart';
+import 'package:ah_developer_kiryana_store/models/party.dart';
+import 'package:ah_developer_kiryana_store/models/qist_plan.dart';
+import 'package:ah_developer_kiryana_store/sync/sync_queue_helper.dart';
 
 int d(int m, int day) => DateTime(2026, m, day).millisecondsSinceEpoch;
 int at(int m, int day, int h) => DateTime(2026, m, day, h).millisecondsSinceEpoch;

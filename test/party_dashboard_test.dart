@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/party_dashboard_repository.dart';
-import 'package:hanna_installment/models/product.dart';
+import 'package:ah_developer_kiryana_store/db/party_dashboard_repository.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
 
 PartyRow customer(String name, double closing, {int? at, double stuck = 0.0, int id = 1}) =>
     PartyRow(id: id, name: name, phone: '', closing: closing, isCustomer: true, stuck: stuck, lastActivityAt: at);

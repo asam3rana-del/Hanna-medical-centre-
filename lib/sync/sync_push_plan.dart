@@ -1,7 +1,5 @@
 import 'dart:convert';
 
-import '../installment/inst_sync_names.dart';
-
 /// SyncApi.push ka SAAF (Firestore ke baghair) hissa — Kotlin `SyncApi.push()` ke faisle, taake unhein
 /// bina Firebase ke test kiya ja sake. Firestore se asli baat `sync_api.dart` mein hoti hai.
 
@@ -40,8 +38,6 @@ const Map<String, String> pushCollections = {
   'utility_bill': 'utility_bills',
   'utility_bill_payment': 'utility_bill_payments',
   'due_followup': 'due_followups',
-  // Hanna Installment (6)
-  ...instPushCollections,
 };
 
 String? collectionFor(String entityType) => pushCollections[entityType];

@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:hanna_installment/db/bulk_translate_repository.dart';
-import 'package:hanna_installment/models/product.dart';
-import 'package:hanna_installment/utils/duplicate_unit_fix.dart';
-import 'package:hanna_installment/utils/merge_duplicate_products.dart';
+import 'package:ah_developer_kiryana_store/db/bulk_translate_repository.dart';
+import 'package:ah_developer_kiryana_store/models/product.dart';
+import 'package:ah_developer_kiryana_store/utils/duplicate_unit_fix.dart';
+import 'package:ah_developer_kiryana_store/utils/merge_duplicate_products.dart';
 
 Product p(
   String barcode,
