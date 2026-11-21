@@ -1,0 +1,614 @@
+# Android ka generated project (flutter create) yahan theek hota hai.
+# Do template sambhale jate hain:
+#   * Kotlin DSL  (android/settings.gradle.kts, android/app/build.gradle.kts) — Flutter 3.29+ ka default
+#   * Groovy      (android/settings.gradle,     android/app/build.gradle)     — purana (Flutter 3.24)
+# Play Store (31 Aug 2026 se): naye apps / updates ka targetSdk 36 zaroori.
+TARGET_SDK=36
+# Play Store App ID (2026-11-10 faisla). Kabhi na badlein — badalne se nayi app ban jati hai.
+# `namespace` (Kotlin/Java code ka package) jaan boojh kar wahi rehta hai; sirf applicationId badalta hai.
+APP_ID="${APP_ID:-com.hannasolutions.installment}"
+MIN_SDK=23   # flutter_secure_storage (backup password); Flutter ka apna minimum is se zyada ho to wahi rehta hai
+
+GRADLE=android/app/build.gradle
+[ -f android/app/build.gradle.kts ] && GRADLE=android/app/build.gradle.kts
+case "$GRADLE" in *.kts) KTS=1 ;; *) KTS=0 ;; esac
+echo "=== Gradle file: $GRADLE (KTS=$KTS) ==="
+[ -f "$GRADLE" ] || { echo "ERROR: $GRADLE nahi mili — pehle 'flutter create --platforms=android .' chalayein"; exit 1; }
+
+if [ "$KTS" = 0 ]; then
+  # --- Purana template: Kotlin 2.1.0 + AGP 8.7.3 + Gradle 8.9 (Firebase 23.x libs need Kotlin 2.1 metadata) ---
+  sed -i -E 's/(org.jetbrains.kotlin.android" version )"[0-9.]+"/\1"2.1.0"/' android/settings.gradle
+  sed -i -E 's/(com.android.application" version )"[0-9.]+"/\1"8.7.3"/' android/settings.gradle
+  sed -i -E 's/gradle-[0-9.]+-(all|bin)/gradle-8.9-all/' android/gradle/wrapper/gradle-wrapper.properties
+  echo "=== settings.gradle (verify versions) ==="
+  cat android/settings.gradle
+  grep -q '"org.jetbrains.kotlin.android" version "2.1.0"' android/settings.gradle || { echo "ERROR: Kotlin 2.1.0 not applied"; exit 1; }
+  grep -q '"com.android.application" version "8.7.3"' android/settings.gradle || { echo "ERROR: AGP 8.7.3 not applied"; exit 1; }
+  cat android/gradle/wrapper/gradle-wrapper.properties
+  # NDK 25.1 (3.24 template 23.1 pin karta tha), compileSdk/targetSdk, minSdk.
+  sed -i -E 's/ndkVersion[[:space:]]*=?[[:space:]]*flutter\.ndkVersion/ndkVersion = "25.1.8937393"/' "$GRADLE"
+  sed -i -E "s/compileSdk(Version)?[[:space:]]*=?[[:space:]]*flutter\.compileSdkVersion/compileSdk = $TARGET_SDK/" "$GRADLE"
+  sed -i -E "s/targetSdk(Version)?[[:space:]]*=?[[:space:]]*flutter\.targetSdkVersion/targetSdk = $TARGET_SDK/" "$GRADLE"
+  sed -i -E "s/minSdk(Version)?[[:space:]]*=?[[:space:]]*flutter\.minSdkVersion/minSdk = $MIN_SDK/" "$GRADLE"
+  sed -i -E "s/applicationId[[:space:]]*=?[[:space:]]*\"[^\"]*\"/applicationId = \"$APP_ID\"/" "$GRADLE"
+else
+  # --- Naya (KTS) template: Flutter khud naye AGP / Kotlin / Gradle deta hai. Sirf check: Kotlin >= 2.1 (Firebase). ---
+  SETTINGS=android/settings.gradle.kts
+  echo "=== $SETTINGS ==="; cat "$SETTINGS"
+  KV=$(grep -oE 'org\.jetbrains\.kotlin\.android"\)[[:space:]]*version[[:space:]]*"[0-9.]+"' "$SETTINGS" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+  echo "Kotlin plugin: ${KV:-?}"
+  case "$KV" in
+    1.*|2.0.*) sed -i -E 's/(org\.jetbrains\.kotlin\.android"\)[[:space:]]*version[[:space:]]*)"[0-9.]+"/\1"2.1.0"/' "$SETTINGS"; echo "Kotlin -> 2.1.0" ;;
+  esac
+  cat android/gradle/wrapper/gradle-wrapper.properties
+fi
+echo "android.suppressUnsupportedCompileSdk=$TARGET_SDK" >> android/gradle.properties
+
+# Phase 12 (Print & Scan): Bluetooth printer + camera permissions. `flutter create` manifest mein
+# yeh nahi hoti; sirf tab jodo jab pehle se na hon.
+MANIFEST=android/app/src/main/AndroidManifest.xml
+
+# App ka naam (phone par icon ke neeche): Hanna Installment.
+sed -i -E 's/android:label="[^"]*"/android:label="Hanna Installment"/' "$MANIFEST"
+grep -q 'android:label="Hanna Installment"' "$MANIFEST" || { echo "ERROR: app label not set"; exit 1; }
+if ! grep -q "BLUETOOTH_CONNECT" "$MANIFEST"; then
+  sed -i '0,/<manifest[^>]*>/s//&\n    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" \/>\n    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" \/>\n    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" \/>\n    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" \/>\n    <uses-permission android:name="android.permission.CAMERA" \/>/' "$MANIFEST"
+fi
+
+# Hanna Installment: READ_CONTACTS NAHI. Pakistan mein Google Play contacts ki ijazat ko loan apps se jorta hai
+# (unhein contacts / photos ki ijazat mana hai); qist app mein contact picker ki zaroorat bhi nahi (POS ki party screen
+# chhupi hai). flutter_contacts ka system picker ijazat ke baghair number na de to user number khud likhta hai.
+# Plugin ka apna manifest ijazat jore to bhi merged manifest se hat jaye: tools:node="remove".
+grep -q 'xmlns:tools=' "$MANIFEST" || sed -i '0,/<manifest /s//<manifest xmlns:tools="http:\/\/schemas.android.com\/tools" /' "$MANIFEST"
+if ! grep -q 'READ_CONTACTS" tools:node="remove"' "$MANIFEST"; then
+  sed -i '0,/<manifest[^>]*>/s//&\n    <uses-permission android:name="android.permission.READ_CONTACTS" tools:node="remove" \/>/' "$MANIFEST"
+fi
+grep -q 'READ_CONTACTS" tools:node="remove"' "$MANIFEST" || { echo "ERROR: READ_CONTACTS remove not written"; exit 1; }
+grep -n "uses-permission" "$MANIFEST"
+
+# --- R8 rules: google_mlkit_text_recognition refers to Chinese/Japanese/Korean/Devanagari option classes
+# that we don't bundle (Latin only). Tell R8 to ignore them, otherwise release build fails with "Missing class". ---
+cat > android/app/proguard-rules.pro <<'EOF'
+-dontwarn com.google.mlkit.vision.text.chinese.**
+-dontwarn com.google.mlkit.vision.text.japanese.**
+-dontwarn com.google.mlkit.vision.text.korean.**
+-dontwarn com.google.mlkit.vision.text.devanagari.**
+EOF
+
+# --- Production signing is mandatory: never publish a release APK signed with the debug key. ---
+: "${KEYSTORE_BASE64:=}"
+: "${KEYSTORE_PASSWORD:=}"
+: "${KEY_PASSWORD:=}"
+[ -n "$KEYSTORE_BASE64" ] || { echo "ERROR: KEYSTORE_BASE64 secret missing; refusing an update-incompatible debug-signed release."; exit 1; }
+[ -n "$KEYSTORE_PASSWORD" ] || { echo "ERROR: KEYSTORE_PASSWORD secret missing."; exit 1; }
+[ -n "$KEY_PASSWORD" ] || { echo "ERROR: KEY_PASSWORD secret missing."; exit 1; }
+printf '%s' "$KEYSTORE_BASE64" | base64 -d > android/app/upload.jks || { echo "ERROR: KEYSTORE_BASE64 is not valid base64."; exit 1; }
+[ -s android/app/upload.jks ] || { echo "ERROR: decoded keystore is empty."; exit 1; }
+keytool -list -keystore android/app/upload.jks -storepass "$KEYSTORE_PASSWORD" -alias ahkey >/dev/null 2>&1 || { echo "ERROR: keystore is invalid or alias 'ahkey' / store password is incorrect."; exit 1; }
+# Firebase / Play ke liye signing fingerprints (public hain, secret nahi) — Firebase Console > Android app > SHA.
+echo "=== Signing key fingerprints (Firebase Console mein Android app ke saath lagayein) ==="
+keytool -list -v -keystore android/app/upload.jks -storepass "$KEYSTORE_PASSWORD" -alias ahkey 2>/dev/null | grep -E "SHA1:|SHA256:" || true
+
+if [ "$KTS" = 0 ]; then
+  # Release buildType mein proguard file jodo (`signingConfig signingConfigs.debug` ke baad).
+  sed -i -E "s/^([[:space:]]*)signingConfig[[:space:]]*=?[[:space:]]*signingConfigs\.debug/&\n\1proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'/" "$GRADLE"
+  sed -i -E "s/^([[:space:]]*)buildTypes[[:space:]]*\{/\1signingConfigs {\n\1    release {\n\1        storeFile file('upload.jks')\n\1        storePassword System.getenv('KEYSTORE_PASSWORD')\n\1        keyAlias 'ahkey'\n\1        keyPassword System.getenv('KEY_PASSWORD')\n\1    }\n\1}\n\1buildTypes {/" "$GRADLE"
+  sed -i -E 's/signingConfig[[:space:]]*=?[[:space:]]*signingConfigs\.debug/signingConfig signingConfigs.release/' "$GRADLE"
+else
+  # KTS: template ke text par sed ke bajaye aakhir mein ek aur `android {}` block. Gradle mein blocks jurte hain
+  # aur baad wali value jeet'ti hai — template ki wording badle tab bhi ye chalta hai.
+  cat >> "$GRADLE" <<KTS
+
+// ---- tools/android_fix.sh (CI) ----
+android {
+    compileSdk = maxOf(flutter.compileSdkVersion, $TARGET_SDK)
+    defaultConfig {
+        applicationId = "$APP_ID"
+        minSdk = maxOf(flutter.minSdkVersion, $MIN_SDK)
+        targetSdk = $TARGET_SDK
+    }
+    compileOptions {
+        // flutter_local_notifications (DueAlertService)
+        isCoreLibraryDesugaringEnabled = true
+    }
+    signingConfigs {
+        create("release") {
+            storeFile = file("upload.jks")
+            storePassword = System.getenv("KEYSTORE_PASSWORD")
+            keyAlias = "ahkey"
+            keyPassword = System.getenv("KEY_PASSWORD")
+        }
+    }
+    buildTypes {
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("release")
+            // proguardFiles yahan NAHI: Flutter ka Gradle plugin release mein khud
+            // proguard-android-optimize.txt + android/app/proguard-rules.pro jorta hai. Naya AGP purani
+            // `proguard-android.txt` par build hi rok deta hai.
+        }
+    }
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+}
+KTS
+fi
+# --- Purane plugins (e.g. file_picker 8.x: compileSdk 34) ko bhi compileSdk >= TARGET_SDK par compile karo. ---
+# Naye AndroidX libraries (flutter_plugin_android_lifecycle) 35+ maangti hain, warna checkReleaseAarMetadata fail.
+# `finalizeDsl` AGP ka rasmi hook hai (plugin ki apni build.gradle ke BAAD, DSL lock hone se PEHLE chalta hai).
+# Root build file ke SHURU mein, taake koi plugin project is se pehle evaluate na ho.
+ROOT_KTS=android/build.gradle.kts
+if [ "$KTS" = 1 ] && [ -f "$ROOT_KTS" ] && ! grep -q "ah-compile-sdk-floor" "$ROOT_KTS"; then
+  { cat <<ROOTKTS
+// ---- tools/android_fix.sh (CI): ah-compile-sdk-floor ----
+subprojects {
+    pluginManager.withPlugin("com.android.library") {
+        extensions.configure<com.android.build.api.variant.LibraryAndroidComponentsExtension> {
+            finalizeDsl { ext ->
+                if ((ext.compileSdk ?: 0) < $TARGET_SDK) ext.compileSdk = $TARGET_SDK
+            }
+        }
+    }
+}
+
+ROOTKTS
+    cat "$ROOT_KTS"; } > "$ROOT_KTS.new" && mv "$ROOT_KTS.new" "$ROOT_KTS"
+  echo "=== $ROOT_KTS ==="; cat "$ROOT_KTS"
+fi
+
+echo "=== app gradle (verify sdk / signing / proguard) ==="
+grep -n "compileSdk\|targetSdk\|minSdk\|ndkVersion\|signingConfig\|upload.jks\|proguard" "$GRADLE"
+if [ "$KTS" = 0 ]; then
+  grep -q "proguard-rules.pro" "$GRADLE" || { echo "ERROR: proguard rules not wired into build gradle"; exit 1; }
+else
+  [ -s android/app/proguard-rules.pro ] || { echo "ERROR: android/app/proguard-rules.pro missing"; exit 1; }
+fi
+grep -q 'signingConfigs.release\|signingConfigs.getByName("release")' "$GRADLE" || { echo "ERROR: release signing not applied"; exit 1; }
+grep -q "targetSdk = $TARGET_SDK" "$GRADLE" || { echo "ERROR: targetSdk $TARGET_SDK not applied"; exit 1; }
+grep -q "applicationId = \"$APP_ID\"" "$GRADLE" || { echo "ERROR: applicationId $APP_ID not applied"; exit 1; }
+echo "App ID: $APP_ID"
+
+# --- Security: Android auto-backup band (DeviceTag/sync prefs doosre phone par copy na hon). ---
+if ! grep -q 'android:allowBackup' "$MANIFEST"; then
+  sed -i '0,/<application/s//<application android:allowBackup="false"/' "$MANIFEST"
+else
+  sed -i -E 's/android:allowBackup="true"/android:allowBackup="false"/' "$MANIFEST"
+fi
+grep -q 'android:allowBackup="false"' "$MANIFEST" || { echo "ERROR: allowBackup=false not applied"; exit 1; }
+
+# --- Fingerprint (local_auth) Android requirements. Inke bina BiometricPrompt khulta hi nahi aur
+# authenticate() PlatformException (no_fragment_activity) deta hai => hamesha "Fingerprint not verified". ---
+# 1) USE_BIOMETRIC permission
+if ! grep -q "USE_BIOMETRIC" "$MANIFEST"; then
+  sed -i '0,/<manifest[^>]*>/s//&\n    <uses-permission android:name="android.permission.USE_BIOMETRIC" \/>/' "$MANIFEST"
+fi
+grep -n "USE_BIOMETRIC" "$MANIFEST" || { echo "ERROR: USE_BIOMETRIC not added"; exit 1; }
+
+# 2) MainActivity must extend FlutterFragmentActivity
+MAIN=$(find android/app/src/main -name "MainActivity.kt" -o -name "MainActivity.java" | head -1)
+echo "MainActivity: $MAIN"
+sed -i 's/io\.flutter\.embedding\.android\.FlutterActivity\b/io.flutter.embedding.android.FlutterFragmentActivity/; s/: FlutterActivity()/: FlutterFragmentActivity()/; s/extends FlutterActivity/extends FlutterFragmentActivity/' "$MAIN"
+cat "$MAIN"
+grep -q "FlutterFragmentActivity" "$MAIN" || { echo "ERROR: MainActivity not switched to FlutterFragmentActivity"; exit 1; }
+
+# 3) Themes must be AppCompat based (BiometricPrompt requirement)
+for f in android/app/src/main/res/values/styles.xml android/app/src/main/res/values-night/styles.xml; do
+  [ -f "$f" ] || continue
+  sed -i 's#@android:style/Theme.Light.NoTitleBar#Theme.AppCompat.Light.NoActionBar#g; s#@android:style/Theme.Black.NoTitleBar#Theme.AppCompat.DayNight.NoActionBar#g' "$f"
+  echo "=== $f ==="; cat "$f"
+done
+
+# --- Background sync (SyncKeepAlive / flutter_foreground_task): app minimize hone par bhi sync chale. ---
+for perm in FOREGROUND_SERVICE FOREGROUND_SERVICE_DATA_SYNC POST_NOTIFICATIONS WAKE_LOCK; do
+  if ! grep -q "android.permission.$perm\"" "$MANIFEST"; then
+    sed -i "0,/<manifest[^>]*>/s//&\n    <uses-permission android:name=\"android.permission.$perm\" \/>/" "$MANIFEST"
+  fi
+done
+if ! grep -q "flutter_foreground_task.service.ForegroundService" "$MANIFEST"; then
+  sed -i 's#</application>#    <service android:name="com.pravera.flutter_foreground_task.service.ForegroundService" android:foregroundServiceType="dataSync" android:exported="false" \/>\n    </application>#' "$MANIFEST"
+fi
+grep -n "FOREGROUND_SERVICE\|ForegroundService" "$MANIFEST" || { echo "ERROR: foreground service not added to manifest"; exit 1; }
+
+# --- PDF seedha customer ke WhatsApp chat mein (lib/services/whatsapp_pdf.dart, channel "ah_developer/wa") ---
+# Apna FileProvider (authority <applicationId>.slipshare) sirf cache/slips folder ke liye — share_plus ke provider par
+# bharosa nahi. Na ho to Dart side chupchap aam share sheet kholti hai.
+mkdir -p android/app/src/main/res/xml
+cat > android/app/src/main/res/xml/slip_paths.xml <<'XML'
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <cache-path name="slips" path="slips/" />
+</paths>
+XML
+if ! grep -q 'slip_paths' "$MANIFEST"; then
+  sed -i 's#</application>#    <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.slipshare" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/slip_paths" /></provider>\n    </application>#' "$MANIFEST"
+fi
+grep -q 'slip_paths' "$MANIFEST" || { echo "ERROR: slipshare FileProvider not added to manifest"; exit 1; }
+# WhatsApp ko queries mein (Android 11+ package visibility) — sirf tab jodo jab <queries> pehle se na ho.
+if ! grep -q 'com.whatsapp' "$MANIFEST"; then
+  if grep -q '<queries>' "$MANIFEST"; then
+    sed -i 's#<queries>#<queries>\n        <package android:name="com.whatsapp" />\n        <package android:name="com.whatsapp.w4b" />#' "$MANIFEST"
+  else
+    sed -i '0,/<application/s##<queries>\n        <package android:name="com.whatsapp" />\n        <package android:name="com.whatsapp.w4b" />\n    </queries>\n    <application#' "$MANIFEST"
+  fi
+fi
+grep -q 'com.whatsapp' "$MANIFEST" || { echo "ERROR: WhatsApp queries not added"; exit 1; }
+
+# --- Backup ki public Downloads copy (Kotlin BackupHelper.copyToDownloads): MediaStore MethodChannel ---
+# lib/backup/downloads_copy.dart isi channel ("ah_developer/downloads") ko bulata hai. Android 10+ par
+# permission nahi chahiye; 9 aur us se purane par WRITE_EXTERNAL_STORAGE (maxSdk 28) chahiye.
+if ! grep -q 'android.permission.WRITE_EXTERNAL_STORAGE' "$MANIFEST"; then
+  sed -i '0,/<manifest[^>]*>/s//&\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" \/>/' "$MANIFEST"
+fi
+case "$MAIN" in
+  *.kt)
+    PKG=$(grep -m1 '^package ' "$MAIN" | sed -E 's/^package[[:space:]]+//; s/[[:space:]]*;?[[:space:]]*$//')
+    [ -n "$PKG" ] || { echo "ERROR: MainActivity package nahi mila"; exit 1; }
+    cat > "$MAIN" <<KT
+package $PKG
+
+import android.annotation.SuppressLint
+import android.app.PendingIntent
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothSocket
+import android.content.BroadcastReceiver
+import android.content.ContentValues
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.net.Uri
+import androidx.core.content.FileProvider
+import android.hardware.usb.UsbConstants
+import android.hardware.usb.UsbDevice
+import android.hardware.usb.UsbDeviceConnection
+import android.hardware.usb.UsbEndpoint
+import android.hardware.usb.UsbInterface
+import android.hardware.usb.UsbManager
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import io.flutter.embedding.android.FlutterFragmentActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
+import java.io.File
+import java.io.FileInputStream
+import java.io.OutputStream
+import java.util.UUID
+
+// FlutterFragmentActivity: local_auth (fingerprint). Channel: backup ki Downloads copy.
+class MainActivity : FlutterFragmentActivity() {
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ah_developer/downloads")
+            .setMethodCallHandler { call, result ->
+                if (call.method != "copyToDownloads") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+                val path = call.argument<String>("path")
+                val fileName = call.argument<String>("fileName")
+                val folder = call.argument<String>("folder")
+                if (path == null || fileName == null || folder == null) {
+                    result.error("bad_args", "path/fileName/folder chahiye", null)
+                    return@setMethodCallHandler
+                }
+                Thread {
+                    val ok = try {
+                        copyToDownloads(File(path), fileName, folder)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        false
+                    }
+                    runOnUiThread { result.success(ok) }
+                }.start()
+            }
+        setupUsbChannel(flutterEngine)
+        setupBtChannel(flutterEngine)
+        setupWaChannel(flutterEngine)
+    }
+
+    // ---- USB thermal printer (Kotlin PrinterHelper USB hissa: host mode, bulk OUT endpoint). Plugin nahi. ----
+    // Channel "ah_developer/usb": list / permission / open / write / close. Delays Dart mein (Bluetooth jaisa).
+    private var usbConn: UsbDeviceConnection? = null
+    private var usbIface: UsbInterface? = null
+    private var usbEp: UsbEndpoint? = null
+    private val usbPermAction = "com.ahdeveloper.USB_PERMISSION"
+
+    private fun usbMgr(): UsbManager? = getSystemService(Context.USB_SERVICE) as? UsbManager
+
+    private fun findBulkOut(d: UsbDevice): Pair<UsbInterface, UsbEndpoint>? {
+        for (i in 0 until d.interfaceCount) {
+            val itf = d.getInterface(i)
+            for (e in 0 until itf.endpointCount) {
+                val ep = itf.getEndpoint(e)
+                if (ep.type == UsbConstants.USB_ENDPOINT_XFER_BULK && ep.direction == UsbConstants.USB_DIR_OUT) return itf to ep
+            }
+        }
+        return null
+    }
+
+    private fun findUsb(vid: Int, pid: Int): UsbDevice? =
+        usbMgr()?.deviceList?.values?.firstOrNull { it.vendorId == vid && it.productId == pid }
+
+    private fun usbClose() {
+        try { val c = usbConn; val i = usbIface; if (c != null && i != null) c.releaseInterface(i) } catch (_: Exception) {}
+        try { usbConn?.close() } catch (_: Exception) {}
+        usbConn = null; usbIface = null; usbEp = null
+    }
+
+    @Suppress("UnspecifiedRegisterReceiverFlag")
+    private fun usbAskPermission(d: UsbDevice, cb: (Boolean) -> Unit) {
+        val m = usbMgr()
+        if (m == null) { cb(false); return }
+        if (m.hasPermission(d)) { cb(true); return }
+        val flags = if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
+        val pi = PendingIntent.getBroadcast(this, 0, Intent(usbPermAction).setPackage(packageName), flags)
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, intent: Intent) {
+                if (intent.action == usbPermAction) {
+                    try { unregisterReceiver(this) } catch (_: Exception) {}
+                    cb(intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false))
+                }
+            }
+        }
+        val filter = IntentFilter(usbPermAction)
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        else registerReceiver(receiver, filter)
+        m.requestPermission(d, pi)
+    }
+
+    private fun setupUsbChannel(flutterEngine: FlutterEngine) {
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ah_developer/usb")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "list" -> {
+                        val out = ArrayList<Map<String, Any>>()
+                        for (d in (usbMgr()?.deviceList?.values ?: emptyList<UsbDevice>())) {
+                            if (findBulkOut(d) == null) continue
+                            var label = ""
+                            try { label = d.productName ?: "" } catch (_: Exception) {}
+                            if (label.isEmpty()) label = "USB printer " + d.vendorId + ":" + d.productId
+                            out.add(mapOf("vid" to d.vendorId, "pid" to d.productId, "name" to label))
+                        }
+                        result.success(out)
+                    }
+                    "permission" -> {
+                        val d = findUsb(call.argument<Int>("vid") ?: -1, call.argument<Int>("pid") ?: -1)
+                        if (d == null) result.success(false) else usbAskPermission(d) { ok -> result.success(ok) }
+                    }
+                    "open" -> {
+                        usbClose()
+                        val d = findUsb(call.argument<Int>("vid") ?: -1, call.argument<Int>("pid") ?: -1)
+                        val m = usbMgr()
+                        val fe = if (d != null) findBulkOut(d) else null
+                        if (d == null || m == null || fe == null || !m.hasPermission(d)) {
+                            result.success(false)
+                        } else {
+                            try {
+                                val c = m.openDevice(d)
+                                if (c == null) { result.success(false) }
+                                else {
+                                    c.claimInterface(fe.first, true)
+                                    usbConn = c; usbIface = fe.first; usbEp = fe.second
+                                    result.success(true)
+                                }
+                            } catch (e: Exception) { e.printStackTrace(); usbClose(); result.success(false) }
+                        }
+                    }
+                    "write" -> {
+                        val bytes = call.argument<ByteArray>("bytes")
+                        val c = usbConn
+                        val ep = usbEp
+                        if (bytes == null || c == null || ep == null) { result.success(false) }
+                        else Thread {
+                            var ok = true
+                            try {
+                                var off = 0
+                                while (off < bytes.size) {
+                                    val len = minOf(4096, bytes.size - off)
+                                    val slice = bytes.copyOfRange(off, off + len)
+                                    if (c.bulkTransfer(ep, slice, slice.size, 5000) < 0) { ok = false; break }
+                                    off += len
+                                }
+                            } catch (e: Exception) { e.printStackTrace(); ok = false }
+                            runOnUiThread { result.success(ok) }
+                        }.start()
+                    }
+                    "close" -> { usbClose(); result.success(true) }
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    // ---- Bluetooth thermal printer: Kotlin PrinterHelper jaisa seedha RFCOMM socket (plugin nahi). ----
+    // print_bluetooth_thermal plugin se bhejne par tasveer wale (raster) bill tukron mein chhap rahe the;
+    // Kotlin ka seedha socket theek chhapta tha. Channel "ah_developer/bt": connect / write / close.
+    // Delays Dart mein (printer_service.dart), yahan sirf write + flush.
+    private var btSocket: BluetoothSocket? = null
+    private var btOut: OutputStream? = null
+    private val sppUuid: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+
+    private fun btClose() {
+        try { btOut?.flush() } catch (_: Exception) {}
+        try { btSocket?.close() } catch (_: Exception) {}
+        btSocket = null; btOut = null
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun btOpenSocket(device: BluetoothDevice): BluetoothSocket {
+        return try {
+            val socket = device.createRfcommSocketToServiceRecord(sppUuid)
+            socket.connect()
+            socket
+        } catch (e: Exception) {
+            // Sasti printers SDP ka jawab nahi deti: channel 1 par seedha insecure socket (Kotlin wala fallback).
+            val fallback = try {
+                val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
+                m.invoke(device, 1) as BluetoothSocket
+            } catch (re: Exception) {
+                throw e
+            }
+            fallback.connect()
+            fallback
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun setupBtChannel(flutterEngine: FlutterEngine) {
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ah_developer/bt")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "connect" -> {
+                        val mac = call.argument<String>("mac")
+                        Thread {
+                            var ok = false
+                            try {
+                                btClose()
+                                val adapter = BluetoothAdapter.getDefaultAdapter()
+                                if (adapter != null && mac != null) {
+                                    adapter.cancelDiscovery()
+                                    val sock = btOpenSocket(adapter.getRemoteDevice(mac))
+                                    btSocket = sock
+                                    btOut = sock.outputStream
+                                    ok = true
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                btClose()
+                            }
+                            runOnUiThread { result.success(ok) }
+                        }.start()
+                    }
+                    "write" -> {
+                        val bytes = call.argument<ByteArray>("bytes")
+                        val out = btOut
+                        if (bytes == null || out == null) {
+                            result.success(false)
+                        } else Thread {
+                            var ok = true
+                            try {
+                                out.write(bytes)
+                                out.flush()
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                ok = false
+                            }
+                            runOnUiThread { result.success(ok) }
+                        }.start()
+                    }
+                    "close" -> {
+                        Thread {
+                            btClose()
+                            runOnUiThread { result.success(true) }
+                        }.start()
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    // ---- PDF seedha WhatsApp chat mein: channel "ah_developer/wa", method sendPdf(path, digits, text). ----
+    // WhatsApp ka "jid" extra (number@s.whatsapp.net) chat khol deta hai, PDF laga hota hai — sirf Send dabana hai.
+    // Kisi bhi masle par false lautata hai; Dart aam share sheet khol deta hai. (Is block mein dollar sign nahi: heredoc.)
+    private fun setupWaChannel(flutterEngine: FlutterEngine) {
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ah_developer/wa")
+            .setMethodCallHandler { call, result ->
+                if (call.method != "sendPdf") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+                val path = call.argument<String>("path")
+                val digits = call.argument<String>("digits")
+                val text = call.argument<String>("text") ?: ""
+                if (path == null || digits == null || digits.isEmpty()) {
+                    result.success(false)
+                    return@setMethodCallHandler
+                }
+                try {
+                    val uri: Uri = FileProvider.getUriForFile(this, packageName + ".slipshare", File(path))
+                    var started = false
+                    for (pkg in listOf("com.whatsapp", "com.whatsapp.w4b")) {
+                        try {
+                            packageManager.getPackageInfo(pkg, 0)
+                        } catch (e: PackageManager.NameNotFoundException) {
+                            continue
+                        }
+                        val i = Intent(Intent.ACTION_SEND)
+                        i.type = "application/pdf"
+                        i.setPackage(pkg)
+                        i.putExtra(Intent.EXTRA_STREAM, uri)
+                        if (text.isNotEmpty()) i.putExtra(Intent.EXTRA_TEXT, text)
+                        i.putExtra("jid", digits + "@s.whatsapp.net")
+                        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        startActivity(i)
+                        started = true
+                        break
+                    }
+                    result.success(started)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    result.success(false)
+                }
+            }
+    }
+
+    private fun copyToDownloads(source: File, fileName: String, folder: String): Boolean {
+        if (!source.exists()) return false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/" + folder)
+            }
+            val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return false
+            val out = contentResolver.openOutputStream(uri) ?: return false
+            out.use { o -> FileInputStream(source).use { it.copyTo(o) } }
+            return true
+        }
+        @Suppress("DEPRECATION")
+        val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), folder)
+        if (!dir.exists() && !dir.mkdirs()) return false
+        source.copyTo(File(dir, fileName), overwrite = true)
+        return true
+    }
+}
+KT
+    echo "=== MainActivity (Downloads channel) ==="; cat "$MAIN"
+    grep -q 'ah_developer/downloads' "$MAIN" || { echo "ERROR: Downloads channel not written"; exit 1; }
+    grep -q 'ah_developer/usb' "$MAIN" || { echo "ERROR: USB channel not written"; exit 1; }
+    grep -q 'ah_developer/bt' "$MAIN" || { echo "ERROR: Bluetooth channel not written"; exit 1; }
+    # USB host: required=false (USB na ho to bhi app install ho; Play Store filter na lage)
+    if ! grep -q 'android.hardware.usb.host' "$MANIFEST"; then
+      sed -i '0,/<manifest[^>]*>/s//&\n    <uses-feature android:name="android.hardware.usb.host" android:required="false" \/>/' "$MANIFEST"
+    fi
+    ;;
+  *) echo "WARNING: MainActivity Kotlin nahi hai — Downloads copy channel skip (Share se backup chalta rahega)";;
+esac
+
+
+# --- flutter_local_notifications (DueAlertService): core library desugaring zaroori hai. ---
+if ! grep -q "coreLibraryDesugaring" "$GRADLE"; then
+  case "$GRADLE" in
+    *.kts)
+      sed -i -E 's/^([[:space:]]*)compileOptions[[:space:]]*\{/&\n\1    isCoreLibraryDesugaringEnabled = true/' "$GRADLE"
+      printf '\ndependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")\n}\n' >> "$GRADLE"
+      ;;
+    *)
+      sed -i -E 's/^([[:space:]]*)compileOptions[[:space:]]*\{/&\n\1    coreLibraryDesugaringEnabled true/' "$GRADLE"
+      printf '\ndependencies {\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"\n}\n' >> "$GRADLE"
+      ;;
+  esac
+fi
+grep -n "esugar" "$GRADLE"
+grep -q "esugar" "$GRADLE" || { echo "ERROR: core library desugaring not applied"; exit 1; }
+
+# --- App icon (Hanna Installment): branding/android/res -> generated project. ---
+# Naya icon banana ho to branding/ ki files badlein; yeh step khud copy kar dega.
+RES=android/app/src/main/res
+[ -d branding/android/res ] || { echo "ERROR: branding/android/res nahi mila"; exit 1; }
+cp -R branding/android/res/. "$RES/"
+grep -q 'android:icon="@mipmap/ic_launcher"' "$RES/../AndroidManifest.xml" || { echo "ERROR: manifest icon @mipmap/ic_launcher nahi"; exit 1; }
+ls -l "$RES/mipmap-anydpi-v26/" "$RES/mipmap-xxxhdpi/"
+echo "=== App icon lag gaya ==="

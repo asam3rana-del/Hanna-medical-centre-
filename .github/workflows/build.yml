@@ -1,0 +1,345 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+    # Sirf docs/markdown badalne par build (aur Actions ke minutes) zaya na hon.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+    inputs:
+      flutter_version:
+        description: 'Flutter version (khali = neeche wala FLUTTER_VERSION). Naya version aazmane ke liye e.g. 3.50.x'
+        required: false
+        default: ''
+      accept_new_lockfile:
+        description: 'pubspec.yaml badla hai aur nayi pubspec.lock abhi commit nahi hui: is run mein lock check skip (artifact "pubspec-lock" download karke commit karein)'
+        type: boolean
+        required: false
+        default: false
+
+# Naya push aane par usi branch ki purani chalti run cancel (build minutes bachte hain).
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Flutter ka ek hi version, saari jobs ke liye. Bump karna ho to sirf yeh ek line badlein
+  # (ya Run workflow mein flutter_version likhein) — naye Flutter par Android/iOS/Windows
+  # build ke fixes (tools/android_fix.sh, Kotlin/AGP/Gradle versions) dobara check karne parte hain.
+  # 3.47.x = latest 3.47 patch (Play Store API 36 / Android 16 ke saath). 3.24 -> 3.47 upgrade: 2026-11-10.
+  FLUTTER_VERSION: ${{ inputs.flutter_version || '3.47.x' }}
+  ACCEPT_NEW_LOCK: ${{ inputs.accept_new_lockfile && '1' || '0' }}
+
+jobs:
+  # Analyze + test is the required release gate. Every platform build depends on this job.
+  analyze-test:
+    name: Analyze + Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: flutter pub get (lockfile check)
+        shell: bash
+        run: |
+          flutter pub get
+          if [ ! -f pubspec.lock ]; then
+            echo "::error::pubspec.lock is missing. Commit it to the repository root."
+            exit 1
+          elif ! git diff --quiet --ignore-cr-at-eol -- pubspec.lock; then
+            if [ "$ACCEPT_NEW_LOCK" = "1" ]; then
+              echo "::warning::pubspec.lock badli (accept_new_lockfile=true). Artifact 'pubspec-lock' download karke repo mein commit karein."
+            else
+              echo "::error::pubspec.lock is out of date with pubspec.yaml. Run 'flutter pub get' and commit the updated lockfile (ya Run workflow mein accept_new_lockfile tick karein)."
+              git diff -- pubspec.lock | head -50
+              exit 1
+            fi
+          fi
+
+      # CI ne jo pubspec.lock banayi, wo download ke liye rakh do (repo mein commit karne ke liye).
+      - name: Upload generated pubspec.lock
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pubspec-lock
+          path: pubspec.lock
+          if-no-files-found: warn
+
+      # Sirf errors/warnings fail karte hain; info-level lints nahi.
+      - run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      # Release gate: missing tests are a configuration error, not a silent skip.
+      - name: Verify test suite exists
+        run: |
+          if [ ! -d test ] || [ -z "$(find test -name '*_test.dart' -print -quit)" ]; then
+            echo "::error::No Dart tests found. Release builds are blocked until the test suite is restored."
+            exit 1
+          fi
+
+      - name: flutter test
+        run: flutter test --reporter expanded
+
+  build-ios:
+    name: Build iOS (unsigned)
+    needs: analyze-test
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      # workmanager_apple 0.9.4+ iOS 26 ke APIs (BGContinuedProcessingTask) use karta hai — Xcode 26 SDK zaroori.
+      # macos-15 runner ka default Xcode 16 hai; wahan install shuda sab se naya Xcode 26 chuno.
+      - name: Select Xcode 26
+        run: |
+          X=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$X" ]; then
+            echo "::error::Runner par Xcode 26 nahi mila. Maujood:"; ls -d /Applications/Xcode*.app; exit 1
+          fi
+          sudo xcode-select -s "$X"
+          xcodebuild -version
+
+      # Flutter 3.44+ mein Swift Package Manager default hai; kuch plugins (mlkit, bluetooth printer) abhi
+      # CocoaPods par hain aur neeche ke Podfile steps CocoaPods maante hain — is liye CI mein purana raasta.
+      - run: flutter config --no-enable-swift-package-manager
+
+      # Repo has no ios/ or android/ folders, so generate them.
+      # App ID: Android tools/android_fix.sh mein, iOS neeche "Set iOS app name" step mein (com.hannasolutions.installment).
+      - run: flutter create --platforms=ios,android --project-name hanna_installment .
+
+      # Flutter 3.47 ka `flutter create` dependencies naye patch par upgrade kar deta hai — commit wali lock wapas.
+      - run: git checkout -- pubspec.yaml pubspec.lock
+
+      # App ka naam (home screen par): Hanna Installment.
+      - name: Set iOS app name
+        run: |
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 'Hanna Installment'" ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleName 'Hanna Installment'" ios/Runner/Info.plist
+          # App ID (bundle identifier) — Android ke saath ek jaisa. Kabhi na badlein.
+          sed -i '' -E 's/PRODUCT_BUNDLE_IDENTIFIER = com\.example\.[A-Za-z0-9_]+/PRODUCT_BUNDLE_IDENTIFIER = com.hannasolutions.installment/g' ios/Runner.xcodeproj/project.pbxproj
+          grep -m3 "PRODUCT_BUNDLE_IDENTIFIER" ios/Runner.xcodeproj/project.pbxproj
+          ! grep -q "PRODUCT_BUNDLE_IDENTIFIER = com.example" ios/Runner.xcodeproj/project.pbxproj || { echo "::error::iOS bundle id nahi badla"; exit 1; }
+
+      # App icon (Hanna Installment) — ek 1024px icon, Xcode baqi sizes khud banata hai.
+      - name: Set iOS app icon
+        run: |
+          rm -rf ios/Runner/Assets.xcassets/AppIcon.appiconset
+          cp -R branding/ios/AppIcon.appiconset ios/Runner/Assets.xcassets/
+          ls ios/Runner/Assets.xcassets/AppIcon.appiconset
+
+      # iOS privacy strings: inke baghair camera (Bill Scan), gallery, contacts (party phone), Face ID
+      # (fingerprint login) ya Bluetooth printer kholte hi iOS app ko foran band (crash) kar deta hai,
+      # aur App Store review bhi reject karta hai.
+      - name: Set iOS usage descriptions
+        run: |
+          P=ios/Runner/Info.plist
+          add() { /usr/libexec/PlistBuddy -c "Delete :$1" "$P" 2>/dev/null || true; /usr/libexec/PlistBuddy -c "Add :$1 string '$2'" "$P"; }
+          add NSCameraUsageDescription "IMEI / barcode scan aur customer ki tasveer ke liye camera chahiye."
+          add NSPhotoLibraryUsageDescription "Bill ki tasveer gallery se chunne ke liye."
+          add NSContactsUsageDescription "Party ka phone number contacts se bharne ke liye."
+          add NSFaceIDUsageDescription "Face ID se login aur app lock ke liye."
+          add NSBluetoothAlwaysUsageDescription "Bluetooth bill printer se print karne ke liye."
+          add NSBluetoothPeripheralUsageDescription "Bluetooth bill printer se print karne ke liye."
+          add NSLocalNetworkUsageDescription "WiFi / network bill printer se print karne ke liye."
+          grep -c "UsageDescription" "$P"
+
+      # google_mlkit_* (Bill Scan OCR) needs iOS 15.5+; Flutter 3.47 ka template minimum 15.0 hai.
+      - name: Set iOS deployment target to 15.5
+        run: |
+          [ -f ios/Podfile ] || { echo "::error::ios/Podfile nahi bani (SPM band hona chahiye tha)"; exit 1; }
+          sed -i '' -E "s/^#? *platform :ios.*/platform :ios, '15.5'/" ios/Podfile
+          sed -i '' -E "s/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+;/IPHONEOS_DEPLOYMENT_TARGET = 15.5;/g" ios/Runner.xcodeproj/project.pbxproj
+          grep -m3 "IPHONEOS_DEPLOYMENT_TARGET" ios/Runner.xcodeproj/project.pbxproj
+
+      # Pods (e.g. resource bundles) otherwise ask for a Development Team even with --no-codesign.
+      - name: Disable code signing for Pods
+        run: |
+          perl -0pi -e 's/(flutter_additional_ios_build_settings\(target\)\n)/$1    target.build_configurations.each do |c|\n      c.build_settings["CODE_SIGNING_ALLOWED"] = "NO"\n      c.build_settings["CODE_SIGNING_REQUIRED"] = "NO"\n      c.build_settings["EXPANDED_CODE_SIGN_IDENTITY"] = ""\n    end\n/' ios/Podfile
+          grep -n "CODE_SIGN" ios/Podfile
+
+      - name: flutter pub get (lockfile check)
+        shell: bash
+        run: |
+          flutter pub get
+          if [ ! -f pubspec.lock ]; then
+            echo "::error::pubspec.lock is missing. Commit it to the repository root."
+            exit 1
+          elif ! git diff --quiet --ignore-cr-at-eol -- pubspec.lock; then
+            if [ "$ACCEPT_NEW_LOCK" = "1" ]; then
+              echo "::warning::pubspec.lock badli (accept_new_lockfile=true). Artifact 'pubspec-lock' download karke repo mein commit karein."
+            else
+              echo "::error::pubspec.lock is out of date with pubspec.yaml. Run 'flutter pub get' and commit the updated lockfile (ya Run workflow mein accept_new_lockfile tick karein)."
+              git diff -- pubspec.lock | head -50
+              exit 1
+            fi
+          fi
+
+      # Unsigned build — good enough to confirm it compiles for iOS.
+      # To install on a real iPad you need a signed IPA: open ios/Runner.xcworkspace
+      # in Xcode on a Mac, set your Apple Developer team under Signing & Capabilities,
+      # then Product > Archive (or use TestFlight for wider distribution).
+      - run: flutter build ios --release --no-codesign --build-number=${{ github.run_number }} --dart-define=APP_BUILD=${{ github.run_number }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ios-build
+          path: build/ios/iphoneos/Runner.app
+
+  build-android:
+    name: Build Android APK
+    needs: analyze-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+
+      # Gradle 8.9 / AGP 8.7.3 ke liye JDK 17 pakka (runner ka default Java badal jaye to "Gradle version incompatible with Java" error aata hai).
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      # App ID: Android tools/android_fix.sh mein, iOS neeche "Set iOS app name" step mein (com.hannasolutions.installment).
+      - run: flutter create --platforms=ios,android --project-name hanna_installment .
+
+      # Flutter 3.47 ka `flutter create` dependencies naye patch par upgrade kar deta hai — commit wali lock wapas.
+      - run: git checkout -- pubspec.yaml pubspec.lock
+
+      # Kotlin / AGP / targetSdk: tools/android_fix.sh (Groovy aur naya KTS template dono).
+
+      - name: flutter pub get (lockfile check)
+        shell: bash
+        run: |
+          flutter pub get
+          if [ ! -f pubspec.lock ]; then
+            echo "::error::pubspec.lock is missing. Commit it to the repository root."
+            exit 1
+          elif ! git diff --quiet --ignore-cr-at-eol -- pubspec.lock; then
+            if [ "$ACCEPT_NEW_LOCK" = "1" ]; then
+              echo "::warning::pubspec.lock badli (accept_new_lockfile=true). Artifact 'pubspec-lock' download karke repo mein commit karein."
+            else
+              echo "::error::pubspec.lock is out of date with pubspec.yaml. Run 'flutter pub get' and commit the updated lockfile (ya Run workflow mein accept_new_lockfile tick karein)."
+              git diff -- pubspec.lock | head -50
+              exit 1
+            fi
+          fi
+
+      - name: Android fixes + fixed signing key
+        run: bash tools/android_fix.sh
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      # Har build ka versionCode badhta hai, taake Android use update maane.
+      # Gradle signing passwords System.getenv() se padhta hai, isliye yahan bhi env zaroori hai.
+      # License ki hifazat: --obfuscate (class / function ke naam mit jate hain, APK khol kar license check dhoondhna
+      # mushkil). Crash ke stack trace padhne ke liye symbols artifact "android-debug-info" mein.
+      # APP_BUILD: app ko apna build number pata ho (update check: naya build > is ka build).
+      - run: flutter build apk --release --build-number=${{ github.run_number }} --dart-define=APP_BUILD=${{ github.run_number }} --obfuscate --split-debug-info=build/debug-info
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+      # Google Play sirf Android App Bundle (.aab) leta hai. Wahi signing key (upload key) se.
+      - run: flutter build appbundle --release --build-number=${{ github.run_number }} --dart-define=APP_BUILD=${{ github.run_number }} --obfuscate --split-debug-info=build/debug-info
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android-aab
+          path: build/app/outputs/bundle/release/app-release.aab
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android-debug-info
+          path: build/debug-info
+          retention-days: 90
+
+  build-windows:
+    name: Build Windows (exe)
+    needs: analyze-test
+    # windows-latest ab Visual Studio 2026 wala hai; Flutter 3.24.0 use nahi pehchanta
+    # ("Generator Visual Studio 16 2019 could not find any instance"). windows-2022 mein VS 2022 hai.
+    runs-on: windows-2022
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      # Repo mein windows/ folder nahi hota, isliye generate karte hain (iOS / Android jaisa).
+      - run: flutter create --platforms=windows --project-name hanna_installment .
+
+      # Flutter 3.47 ka `flutter create` dependencies naye patch par upgrade kar deta hai — commit wali lock wapas.
+      - run: git checkout -- pubspec.yaml pubspec.lock
+        shell: bash
+
+      - name: flutter pub get (lockfile check)
+        shell: bash
+        run: |
+          flutter pub get
+          if [ ! -f pubspec.lock ]; then
+            echo "::error::pubspec.lock is missing. Commit it to the repository root."
+            exit 1
+          elif ! git diff --quiet --ignore-cr-at-eol -- pubspec.lock; then
+            if [ "$ACCEPT_NEW_LOCK" = "1" ]; then
+              echo "::warning::pubspec.lock badli (accept_new_lockfile=true). Artifact 'pubspec-lock' download karke repo mein commit karein."
+            else
+              echo "::error::pubspec.lock is out of date with pubspec.yaml. Run 'flutter pub get' and commit the updated lockfile (ya Run workflow mein accept_new_lockfile tick karein)."
+              git diff -- pubspec.lock | head -50
+              exit 1
+            fi
+          fi
+
+      # Window title: Hanna Installment.
+      - name: Set Windows window title
+        shell: pwsh
+        run: (Get-Content windows/runner/main.cpp) -replace 'L"hanna_installment"', 'L"Hanna Installment"' | Set-Content windows/runner/main.cpp
+
+      # App icon (Hanna Installment) — branding/windows/app_icon.ico.
+      - name: Set Windows app icon
+        shell: pwsh
+        run: Copy-Item -Force branding/windows/app_icon.ico windows/runner/resources/app_icon.ico
+
+      - run: flutter build windows --release --build-number=${{ github.run_number }} --dart-define=APP_BUILD=${{ github.run_number }} --obfuscate --split-debug-info=build/debug-info-windows
+
+      # Poora Release folder (exe + dll + data) — sirf .exe akeli nahi chalti.
+      - name: Zip Release folder
+        shell: pwsh
+        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath Hanna-Installment-windows.zip
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-build
+          path: Hanna-Installment-windows.zip

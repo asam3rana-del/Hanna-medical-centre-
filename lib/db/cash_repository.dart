@@ -1,0 +1,238 @@
+
+import 'package:sqflite/sqflite.dart' show Transaction;
+
+import '../models/misc_entities.dart';
+import 'app_database.dart';
+import 'day_book_repository.dart';
+import 'expense_repository.dart' show ExpenseRepository;
+import '../sync/sync_queue_helper.dart';
+
+/// Ports CashActivity.kt (saveEntry / loadTodayTotals / loadTransactions).
+///
+/// [planCashEntry] is a PURE function so the Kotlin rules can be unit-tested
+/// (test/cash_test.dart) without a database.
+
+class CashCategories {
+  CashCategories._();
+
+  static const nonExpense = 'Non-expense (Withdrawal / Transfer)';
+  static const miscellaneous = 'Miscellaneous';
+
+  /// Same list and order as Kotlin `expenseCategories`.
+  static const all = <String>[
+    'Food Authority License Fees',
+    'Utility Bills',
+    'Wages',
+    'Fuel Expense',
+    'Pick up Maintenance',
+    'Fines',
+    'Rent',
+    'Income Tax Fees',
+    miscellaneous,
+    nonExpense,
+  ];
+
+  /// Income (Cash IN) categories — profit mein "Other Income" ban kar judti hain (kharcha nahi).
+  static const rentReceived = 'Rent Received';
+  static const otherIncome = 'Other Income';
+  static const income = <String>[rentReceived, otherIncome];
+
+  static bool isIncome(String category) => income.contains(category.trim());
+
+  /// Malik ka apna paisa: na kharcha (munafa kam nahi) na income (munafa nahi barhta).
+  /// Capital = malik ne dukaan mein dala (sirf Cash In). Drawings = ghar ke liye nikala (sirf Cash Out).
+  /// Balance Sheet in ko alag line mein dikhati hai, taake "Capital" sirf andaza na rahe.
+  static const ownerCapital = 'Owner Capital (malik ne dala)';
+  static const ownerDrawings = 'Owner Drawings (ghar ke liye)';
+  static const owner = <String>[ownerCapital, ownerDrawings];
+
+  static bool isOwnerCapital(String category) => category.trim() == ownerCapital;
+  static bool isOwnerDrawings(String category) => category.trim() == ownerDrawings;
+  static bool isOwner(String category) => owner.contains(category.trim());
+
+  /// Cash screen ki category list: pehle kharche (Cash Out), phir income (Cash In), phir malik.
+  /// (Expense screen [all] hi use karti hai — malik wali categories wahan nahi aatin.)
+  static const withIncome = <String>[...all, ...income, ...owner];
+}
+
+/// Malik wali cash rows ka reason in prefixes se shuru hota hai; Balance Sheet inhi se jorti hai.
+const ownerCapitalReason = 'Owner: Capital';
+const ownerDrawingsReason = 'Owner: Drawings';
+const ownerCapitalReasonLike = 'Owner: Capital%';
+const ownerDrawingsReasonLike = 'Owner: Drawings%';
+
+/// Income wali cash IN row ka reason `Income: <category>` se shuru hota hai.
+/// Reports / Balance Sheet isi prefix se "Other Income" nikalte hain.
+const incomeReasonPrefix = 'Income: ';
+const incomeReasonLike = 'Income:%';
+
+/// What one tap on CASH IN / CASH OUT will write.
+class CashEntryPlan {
+  /// true => a real Expense + its linked cash row (Cash Out under a category).
+  final bool createsExpense;
+
+  /// Reason of the plain cash row (used only when [createsExpense] is false).
+  final String cashReason;
+
+  /// Description stored on the Expense (used only when [createsExpense] is true).
+  final String expenseDescription;
+
+  const CashEntryPlan({
+    required this.createsExpense,
+    required this.cashReason,
+    required this.expenseDescription,
+  });
+}
+
+/// [type] is 'IN' | 'OUT'. Category matters ONLY for OUT and never for
+/// [CashCategories.nonExpense] (owner withdrawal / bank transfer = plain cash
+/// movement, no Expense, so profit is not reduced).
+CashEntryPlan planCashEntry({
+  required String type,
+  required String category,
+  required String misc,
+  required String note,
+}) {
+  final cat = category.trim();
+  final m = misc.trim();
+  final n = note.trim();
+  final isIncome = type == 'IN' && CashCategories.isIncome(cat);
+  final isCapital = type == 'IN' && CashCategories.isOwnerCapital(cat);
+  final isDrawings = type == 'OUT' && CashCategories.isOwnerDrawings(cat);
+  final isExpense = type == 'OUT' &&
+      cat.isNotEmpty &&
+      cat != CashCategories.nonExpense &&
+      !CashCategories.isIncome(cat) &&
+      !CashCategories.isOwner(cat);
+
+  final reason = StringBuffer();
+  if (isIncome) reason.write('$incomeReasonPrefix$cat');
+  if (isCapital) reason.write(ownerCapitalReason);
+  if (isDrawings) reason.write(ownerDrawingsReason);
+  if (isExpense) {
+    reason.write(cat);
+    if (cat == CashCategories.miscellaneous && m.isNotEmpty) {
+      if (reason.isNotEmpty) reason.write(' - ');
+      reason.write(m);
+    }
+  }
+  if (n.isNotEmpty) {
+    if (reason.isNotEmpty) reason.write(' | ');
+    reason.write(n);
+  }
+
+  final desc = StringBuffer();
+  if (cat == CashCategories.miscellaneous && m.isNotEmpty) desc.write(m);
+  if (n.isNotEmpty) {
+    if (desc.isNotEmpty) desc.write(' | ');
+    desc.write(n);
+  }
+
+  return CashEntryPlan(
+    createsExpense: isExpense,
+    cashReason: reason.toString(),
+    expenseDescription: desc.toString(),
+  );
+}
+
+class CashTotals {
+  final double cashIn;
+  final double cashOut;
+  const CashTotals(this.cashIn, this.cashOut);
+}
+
+class CashRepository {
+  CashRepository._();
+  static final CashRepository instance = CashRepository._();
+
+  /// SyncQueueHelper.enqueueLegacy: asal payload DB se (Android shape) — hamesha data likhne ke BAAD.
+  Future<void> _enqueue(Transaction txn, String type, String id, String op, Map<String, Object?> payload) =>
+      SyncQueueHelper.enqueueLegacy(txn, type, id, op, payload);
+
+  /// Saves one Cash In / Cash Out. Everything runs in ONE transaction.
+  ///
+  /// A Cash Out under a real category creates the Expense AND its linked cash
+  /// row (reference `expense:<tag>-<id>`, reason `Expense: <category>`), exactly like
+  /// ExpenseActivity.saveExpense(), so Reports / Balance Sheet profit count it.
+  /// `expense:` is not blank / `manual-` / `return:`, so Day Book shows it once
+  /// (as the expense row) and not twice.
+  ///
+  /// Cash row ka `reference` aur sync entity id ab dono DeviceTag wale hain (`expense:<tag>-<id>`).
+  Future<void> save({
+    required String type,
+    required double amount,
+    required String method,
+    required String category,
+    String misc = '',
+    String note = '',
+  }) async {
+    if (type != 'IN' && type != 'OUT') throw ArgumentError('type must be IN or OUT');
+    if (method != 'cash' && method != 'bank') throw ArgumentError('method must be cash or bank');
+    if (!amount.isFinite || amount <= 0) throw ArgumentError('Amount must be greater than 0');
+    if (type == 'OUT' && CashCategories.isIncome(category)) {
+      throw ArgumentError('Income category sirf Cash In ke liye hai');
+    }
+    if (type == 'OUT' && CashCategories.isOwnerCapital(category)) {
+      throw ArgumentError('Owner Capital sirf Cash In ke liye hai (malik ne paisa dala)');
+    }
+    if (type == 'IN' && CashCategories.isOwnerDrawings(category)) {
+      throw ArgumentError('Owner Drawings sirf Cash Out ke liye hai (ghar ke liye nikala)');
+    }
+
+    final plan = planCashEntry(type: type, category: category, misc: misc, note: note);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final db = await AppDatabase.instance.database;
+
+    await db.transaction((txn) async {
+      if (plan.createsExpense) {
+        // Same code path as the Expense screen (ExpenseRepository), so the
+        // Expense + linked cash OUT row can never be written two different ways.
+        await ExpenseRepository.insertExpenseWithCash(
+          txn,
+          category: category.trim(),
+          description: plan.expenseDescription,
+          amount: amount,
+          method: method,
+          now: now,
+        );
+      } else {
+        final cash = CashTransaction(
+          type: type,
+          method: method,
+          amount: amount,
+          reason: plan.cashReason,
+          createdAt: now,
+          updatedAt: now,
+        );
+        final cashId = await txn.insert('cash_transactions', cash.toMap());
+        await _enqueue(txn, 'cash_transaction', '$cashId', 'create', {...cash.toMap(), 'id': cashId});
+      }
+    });
+  }
+
+  /// Today's Cash In / Cash Out (cash + bank together), same as Kotlin
+  /// loadTodayTotals — every cash row of today, including sale/purchase ones.
+  Future<CashTotals> todayTotals() async {
+    final db = await AppDatabase.instance.database;
+    final (start, end) = DayBookRepository.dayBounds(DateTime.now());
+    final rows = await db.rawQuery(
+      'SELECT type, COALESCE(SUM(amount), 0) AS total FROM cash_transactions '
+      'WHERE createdAt >= ? AND createdAt < ? GROUP BY type',
+      [start, end],
+    );
+    double inTotal = 0, outTotal = 0;
+    for (final r in rows) {
+      final v = (r['total'] as num).toDouble();
+      if (r['type'] == 'IN') inTotal = v;
+      if (r['type'] == 'OUT') outTotal = v;
+    }
+    return CashTotals(inTotal, outTotal);
+  }
+
+  /// Newest first (Kotlin shows the latest 50).
+  Future<List<CashTransaction>> recent({int limit = 50}) async {
+    final db = await AppDatabase.instance.database;
+    final rows = await db.query('cash_transactions', orderBy: 'createdAt DESC, id DESC', limit: limit);
+    return rows.map(CashTransaction.fromMap).toList();
+  }
+}

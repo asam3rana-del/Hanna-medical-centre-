@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hanna Installment — License Generator (offline)</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;background:#f2f4f8;color:#22263a}
+  header{background:#0d1b4b;color:#fff;padding:18px 20px}
+  header h1{margin:0;font-size:20px} header p{margin:4px 0 0;opacity:.8;font-size:13px}
+  main{max-width:560px;margin:0 auto;padding:16px}
+  .card{background:#fff;border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+  label{display:block;font-size:13px;color:#667;margin:10px 0 4px}
+  input,select,textarea{width:100%;box-sizing:border-box;padding:12px;border:1px solid #ccd;border-radius:10px;font-size:15px;background:#f8f9fc}
+  textarea{font-family:ui-monospace,monospace;font-size:13px}
+  button{width:100%;padding:14px;border:0;border-radius:12px;background:#0f9b8e;color:#fff;font-size:16px;font-weight:700;margin-top:14px}
+  button.sec{background:#e7eaf2;color:#22263a;font-weight:600}
+  .warn{background:#fff4e0;color:#7a4b00;border-radius:10px;padding:10px;font-size:13px}
+  .err{color:#c62828;font-weight:600;margin-top:8px}
+  .ok{color:#0f7b61;font-weight:600}
+  #out{word-break:break-all}
+  .row{display:flex;gap:10px} .row>div{flex:1}
+</style>
+</head>
+<body>
+<header><h1>Hanna Installment — License Generator</h1><p>Offline. Private key yahin rehti hai — kahin bheji ya save nahi hoti.</p></header>
+<main>
+  <div class="card warn">
+    Ye page sirf Hanna Solutions ke liye. Private key kisi ko na dein. Page band karne par key mit jati hai (har dafa paste karein).
+    Behtar hai internet band kar ke chalayein.
+  </div>
+  <div class="card">
+    <label>Private key (hanna-license-private.key ki 64-harf wali line)</label>
+    <label style="display:block;margin:0 0 8px;padding:12px;border:1px dashed #889;border-radius:10px;text-align:center;font-weight:600;cursor:pointer">
+      Key file chunein (hanna-license-private.key)
+      <input id="privFile" type="file" style="display:none">
+    </label>
+    <div style="font-size:12px;color:#667;margin-bottom:6px">Ya 64-harf wali line neeche paste karein:</div>
+    <textarea id="priv" rows="2" autocomplete="off" spellcheck="false" placeholder="e.g. 3f9a..."></textarea>
+    <div id="pubinfo" style="font-size:12px;color:#667;margin-top:6px"></div>
+  </div>
+  <div class="card">
+    <label>Device code (customer ki app se)</label>
+    <input id="dev" placeholder="ABCD-EFGH-JKMN-PQRS" autocomplete="off" spellcheck="false">
+    <div class="row">
+      <div><label>Type</label>
+        <select id="type"><option value="trial">Trial</option><option value="annual" selected>Annual</option></select></div>
+      <div><label>Serial (record se agla number)</label><input id="serial" type="number" min="1" value="1"></div>
+    </div>
+    <div id="trialBox"><label>Trial din (aaj samet)</label><input id="days" type="number" min="1" max="60" value="15"></div>
+    <div id="annualBox"><label>Aakhri din (us din tak chalegi)</label><input id="until" type="date"></div>
+    <label>Customer (sirf aap ke record ke liye)</label><input id="cust" placeholder="Ali Mobiles, Bhikhi">
+    <button id="go">Key banayein</button>
+    <div id="err" class="err"></div>
+  </div>
+  <div class="card">
+    <label>Naya key pair (rotation) — sirf ek dafa</label>
+    <div style="font-size:12px;color:#667;margin-bottom:8px">Purani private key kisi ne dekh li ho to naya jora banayein. PRIVATE key file
+      save kar ke 2 jagah backup rakhein (kisi ko na dein). Sirf PUBLIC key developer ko bhejein. Naya public key app mein
+      lagne ke baad purani sab keys band — har customer ko nayi key deni hogi.</div>
+    <button class="sec" id="newPair">Naya key pair banao</button>
+    <div id="pairBox" style="display:none">
+      <label>PRIVATE key (kisi ko NA bhejein — file save karein)</label>
+      <textarea id="newPriv" rows="2" readonly></textarea>
+      <button class="sec" id="savePriv">Private key file save karein</button>
+      <label>PUBLIC key (sirf ye developer ko bhejein)</label>
+      <textarea id="newPub" rows="2" readonly></textarea>
+      <button class="sec" id="copyPub">Copy public key</button>
+    </div>
+  </div>
+  <div class="card" id="result" style="display:none">
+    <div class="ok" id="summary"></div>
+    <label>License key (customer ko bhejein)</label>
+    <textarea id="out" rows="5" readonly></textarea>
+    <button class="sec" id="copy">Copy key</button>
+    <button class="sec" id="copyRec">Copy record line (licenses.csv ke liye)</button>
+  </div>
+</main>
+<script>
+"use strict";
+// ---------------------------------------------------------------- SHA-512 (BigInt)
+const K512 = [
+"428a2f98d728ae22","7137449123ef65cd","b5c0fbcfec4d3b2f","e9b5dba58189dbbc","3956c25bf348b538","59f111f1b605d019","923f82a4af194f9b","ab1c5ed5da6d8118",
+"d807aa98a3030242","12835b0145706fbe","243185be4ee4b28c","550c7dc3d5ffb4e2","72be5d74f27b896f","80deb1fe3b1696b1","9bdc06a725c71235","c19bf174cf692694",
+"e49b69c19ef14ad2","efbe4786384f25e3","0fc19dc68b8cd5b5","240ca1cc77ac9c65","2de92c6f592b0275","4a7484aa6ea6e483","5cb0a9dcbd41fbd4","76f988da831153b5",
+"983e5152ee66dfab","a831c66d2db43210","b00327c898fb213f","bf597fc7beef0ee4","c6e00bf33da88fc2","d5a79147930aa725","06ca6351e003826f","142929670a0e6e70",
+"27b70a8546d22ffc","2e1b21385c26c926","4d2c6dfc5ac42aed","53380d139d95b3df","650a73548baf63de","766a0abb3c77b2a8","81c2c92e47edaee6","92722c851482353b",
+"a2bfe8a14cf10364","a81a664bbc423001","c24b8b70d0f89791","c76c51a30654be30","d192e819d6ef5218","d69906245565a910","f40e35855771202a","106aa07032bbd1b8",
+"19a4c116b8d2d0c8","1e376c085141ab53","2748774cdf8eeb99","34b0bcb5e19b48a8","391c0cb3c5c95a63","4ed8aa4ae3418acb","5b9cca4f7763e373","682e6ff3d6b2b8a3",
+"748f82ee5defb2fc","78a5636f43172f60","84c87814a1f0ab72","8cc702081a6439ec","90befffa23631e28","a4506cebde82bde9","bef9a3f7b2c67915","c67178f2e372532b",
+"ca273eceea26619c","d186b8c721c0c207","eada7dd6cde0eb1e","f57d4f7fee6ed178","06f067aa72176fba","0a637dc5a2c898a6","113f9804bef90dae","1b710b35131c471b",
+"28db77f523047d84","32caab7b40c72493","3c9ebe0a15c9bebc","431d67c49c100d4c","4cc5d4becb3e42b6","597f299cfc657e2a","5fcb6fab3ad6faec","6c44198c4a475817"].map(h => BigInt("0x" + h));
+const H512 = ["6a09e667f3bcc908","bb67ae8584caa73b","3c6ef372fe94f82b","a54ff53a5f1d36f1","510e527fade682d1","9b05688c2b3e6c1f","1f83d9abfb41bd6b","5be0cd19137e2179"].map(h => BigInt("0x" + h));
+const M64 = (1n << 64n) - 1n;
+const rotr = (x, n) => ((x >> BigInt(n)) | (x << BigInt(64 - n))) & M64;
+function sha512(msg) {
+  const l = msg.length, bitLen = BigInt(l) * 8n;
+  const padLen = ((l + 17 + 127) >> 7) << 7;
+  const m = new Uint8Array(padLen); m.set(msg); m[l] = 0x80;
+  for (let i = 0; i < 16; i++) m[padLen - 1 - i] = Number((bitLen >> BigInt(8 * i)) & 0xffn);
+  const H = H512.slice(), W = new Array(80);
+  for (let off = 0; off < padLen; off += 128) {
+    for (let t = 0; t < 16; t++) { let w = 0n; for (let k = 0; k < 8; k++) w = (w << 8n) | BigInt(m[off + t * 8 + k]); W[t] = w; }
+    for (let t = 16; t < 80; t++) {
+      const s0 = rotr(W[t-15], 1) ^ rotr(W[t-15], 8) ^ (W[t-15] >> 7n);
+      const s1 = rotr(W[t-2], 19) ^ rotr(W[t-2], 61) ^ (W[t-2] >> 6n);
+      W[t] = (W[t-16] + s0 + W[t-7] + s1) & M64;
+    }
+    let [a,b,c,d,e,f,g,h] = H;
+    for (let t = 0; t < 80; t++) {
+      const S1 = rotr(e,14) ^ rotr(e,18) ^ rotr(e,41), ch = (e & f) ^ (~e & M64 & g);
+      const T1 = (h + S1 + ch + K512[t] + W[t]) & M64;
+      const S0 = rotr(a,28) ^ rotr(a,34) ^ rotr(a,39), maj = (a & b) ^ (a & c) ^ (b & c);
+      const T2 = (S0 + maj) & M64;
+      h = g; g = f; f = e; e = (d + T1) & M64; d = c; c = b; b = a; a = (T1 + T2) & M64;
+    }
+    H[0]=(H[0]+a)&M64; H[1]=(H[1]+b)&M64; H[2]=(H[2]+c)&M64; H[3]=(H[3]+d)&M64;
+    H[4]=(H[4]+e)&M64; H[5]=(H[5]+f)&M64; H[6]=(H[6]+g)&M64; H[7]=(H[7]+h)&M64;
+  }
+  const out = new Uint8Array(64);
+  H.forEach((v, i) => { for (let k = 0; k < 8; k++) out[i*8+k] = Number((v >> BigInt(56 - 8*k)) & 0xffn); });
+  return out;
+}
+// ---------------------------------------------------------------- Ed25519 (RFC 8032), BigInt
+const P = (1n << 255n) - 19n, L = (1n << 252n) + 27742317777372353535851937790883648493n;
+const mod = (a, m = P) => { const r = a % m; return r >= 0n ? r : r + m; };
+function pw(b, e, m = P) { let r = 1n; b = mod(b, m); while (e > 0n) { if (e & 1n) r = r * b % m; b = b * b % m; e >>= 1n; } return r; }
+const inv = x => pw(x, P - 2n);
+const D = mod(-121665n * inv(121666n));
+const I = pw(2n, (P - 1n) / 4n);
+function xrecover(y) { const xx = (y*y - 1n) * inv(D*y*y + 1n); let x = pw(xx, (P + 3n) / 8n); if (mod(x*x - xx) !== 0n) x = mod(x * I); if (x % 2n !== 0n) x = P - x; return x; }
+const By = mod(4n * inv(5n)), Bx = xrecover(By), B = [Bx, By, 1n, mod(Bx * By)];
+function add(p, q) {
+  const A = mod((p[1]-p[0]) * (q[1]-q[0])), Bv = mod((p[1]+p[0]) * (q[1]+q[0])), C = mod(2n * p[3] * q[3] * D), Dv = mod(2n * p[2] * q[2]);
+  const E = Bv - A, F = Dv - C, G = Dv + C, H = Bv + A;
+  return [mod(E*F), mod(G*H), mod(F*G), mod(E*H)];
+}
+function mul(s, p) { let q = [0n, 1n, 1n, 0n]; while (s > 0n) { if (s & 1n) q = add(q, p); p = add(p, p); s >>= 1n; } return q; }
+const le2int = b => { let r = 0n; for (let i = b.length - 1; i >= 0; i--) r = (r << 8n) | BigInt(b[i]); return r; };
+const int2le = (n, len) => { const o = new Uint8Array(len); for (let i = 0; i < len; i++) { o[i] = Number(n & 0xffn); n >>= 8n; } return o; };
+function enc(p) { const zi = inv(p[2]); const x = mod(p[0]*zi), y = mod(p[1]*zi); return int2le(y | ((x & 1n) << 255n), 32); }
+const cat = (...a) => { const o = new Uint8Array(a.reduce((s, x) => s + x.length, 0)); let i = 0; for (const x of a) { o.set(x, i); i += x.length; } return o; };
+function expand(seed) { const h = sha512(seed); let a = le2int(h.slice(0, 32)); a &= (1n << 254n) - 8n; a |= 1n << 254n; return [a, h.slice(32)]; }
+function pubKey(seed) { return enc(mul(expand(seed)[0], B)); }
+function sign(seed, msg) {
+  const [a, prefix] = expand(seed); const A = enc(mul(a, B));
+  const r = le2int(sha512(cat(prefix, msg))) % L; const R = enc(mul(r, B));
+  const k = le2int(sha512(cat(R, A, msg))) % L; const s = (r + k * a) % L;
+  return cat(R, int2le(s, 32));
+}
+// ---------------------------------------------------------------- license format (license_core.dart jaisa)
+const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+function b32enc(d) { let bits = 0, val = 0, o = ""; for (const x of d) { val = ((val << 8) | x) & 0xffff; bits += 8; while (bits >= 5) { o += B32[(val >> (bits - 5)) & 31]; bits -= 5; } } if (bits) o += B32[(val << (5 - bits)) & 31]; return o; }
+function b32dec(t) { let bits = 0, val = 0; const o = []; for (const ch of t) { const v = B32.indexOf(ch); if (v < 0) throw new Error("ghalat harf: " + ch); val = ((val << 5) | v) & 0xffff; bits += 5; if (bits >= 8) { o.push((val >> (bits - 8)) & 0xff); bits -= 8; } } return new Uint8Array(o); }
+const norm = t => t.toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/0/g, "O").replace(/1/g, "I").replace(/8/g, "B");
+const EPOCH = Date.UTC(2024, 0, 1);
+const dayOf = (y, m, d) => Math.round((Date.UTC(y, m - 1, d) - EPOCH) / 86400000);
+function makeKey(seed, device, type, issued, expiry, serial) {
+  const dev = norm(device); if (dev.length !== 16) throw new Error("Device code 16 harf ka hota hai");
+  const db = b32dec(dev);
+  const p = new Uint8Array(20); p[0] = 1; p[1] = type === "trial" ? 1 : 2; p.set(db, 2);
+  p[12] = issued >> 8; p[13] = issued & 255; p[14] = expiry >> 8; p[15] = expiry & 255;
+  p[16] = (serial >>> 24) & 255; p[17] = (serial >>> 16) & 255; p[18] = (serial >>> 8) & 255; p[19] = serial & 255;
+  const body = b32enc(cat(p, sign(seed, p)));
+  return "HI1-" + body.match(/.{1,5}/g).join("-");
+}
+const hex2b = h => { h = h.trim().toLowerCase(); if (!/^[0-9a-f]{64}$/.test(h)) throw new Error("Private key 64 hex harf ki hoti hai"); return new Uint8Array(h.match(/../g).map(x => parseInt(x, 16))); };
+const b2hex = b => Array.from(b, x => x.toString(16).padStart(2, "0")).join("");
+if (typeof module !== "undefined") module.exports = { sha512, pubKey, sign, makeKey, b32enc, b32dec, dayOf };
+
+// ---------------------------------------------------------------- UI
+if (typeof document !== "undefined") {
+  const $ = id => document.getElementById(id);
+  const today = new Date();
+  const iso = d => d.toISOString().slice(0, 10);
+  $("until").value = iso(new Date(Date.UTC(today.getFullYear() + 1, today.getMonth(), today.getDate())));
+  const sync = () => { const t = $("type").value; $("trialBox").style.display = t === "trial" ? "" : "none"; $("annualBox").style.display = t === "annual" ? "" : "none"; };
+  $("type").onchange = sync; sync();
+  $("priv").oninput = () => {
+    try { const line = $("priv").value.trim().split(/\s+/).pop(); $("pubinfo").textContent = "Public key: " + b2hex(pubKey(hex2b(line))) + " (app ki license_keys.dart se milayein)"; }
+    catch (e) { $("pubinfo").textContent = ""; }
+  };
+  // Naya Ed25519 jora: 32 random bytes (browser ka crypto) = private seed; public = pubKey(seed).
+  $("newPair").onclick = () => {
+    if ($("pairBox").style.display !== "none" && !confirm("Naya jora phir se? Pichhla (agar save nahi kiya) zaya ho jayega.")) return;
+    const seed = new Uint8Array(32);
+    crypto.getRandomValues(seed);
+    $("newPriv").value = b2hex(seed);
+    $("newPub").value = b2hex(pubKey(seed));
+    $("pairBox").style.display = "";
+  };
+  $("savePriv").onclick = () => {
+    const text = "# Hanna Installment license PRIVATE key — kisi ko na dein, backup rakhein\n" + $("newPriv").value + "\n";
+    try {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+      a.download = "hanna-license-private-NEW.key";
+      document.body.appendChild(a); a.click(); a.remove();
+    } catch (e) { alert("File save nahi hui — private key ko lamba daba kar Copy karein aur kisi mehfooz note mein rakhein."); }
+  };
+  let lastRec = "";
+  $("go").onclick = () => {
+    $("err").textContent = ""; $("result").style.display = "none";
+    try {
+      const seed = hex2b($("priv").value.trim().split(/\s+/).pop());
+      const type = $("type").value, serial = parseInt($("serial").value, 10);
+      if (!(serial >= 1 && serial < 4294967296)) throw new Error("Serial 1 ya zyada");
+      const ti = dayOf(today.getFullYear(), today.getMonth() + 1, today.getDate());
+      let te;
+      if (type === "trial") { const n = parseInt($("days").value, 10); if (!(n >= 1 && n <= 60)) throw new Error("Trial 1-60 din"); te = ti + n - 1; }
+      else { const [y, m, d] = $("until").value.split("-").map(Number); if (!y) throw new Error("Aakhri din chunein"); te = dayOf(y, m, d); if (te < ti) throw new Error("Aakhri din guzar chuka"); }
+      $("go").disabled = true; $("go").textContent = "Ban rahi hai...";
+      setTimeout(() => {
+        try {
+          const key = makeKey(seed, $("dev").value, type, ti, te, serial);
+          const exp = new Date(EPOCH + te * 86400000).toISOString().slice(0, 10);
+          $("out").value = key;
+          $("summary").textContent = `Serial ${serial} • ${type} • ${iso(new Date(EPOCH + ti * 86400000))} → ${exp} • ${norm($("dev").value)}`;
+          lastRec = [serial, iso(new Date(EPOCH + ti * 86400000)), type, exp, norm($("dev").value), JSON.stringify($("cust").value), key].join(",");
+          $("result").style.display = ""; $("serial").value = serial + 1;
+        } catch (e) { $("err").textContent = e.message; }
+        $("go").disabled = false; $("go").textContent = "Key banayein";
+      }, 30);
+    } catch (e) { $("err").textContent = e.message; }
+  };
+  // File se khula page (content:// / file://) "secure" nahi hota — wahan navigator.clipboard nahi chalta,
+  // is liye purana tareeqa (chhupa textarea + execCommand) bhi.
+  function copyText(text, btn) {
+    const done = ok => {
+      const old = btn.textContent;
+      btn.textContent = ok ? "Copy ho gaya ✓" : "Copy nahi hua — key par lamba daba kar Select all > Copy";
+      setTimeout(() => { btn.textContent = old; }, 2500);
+    };
+    const fallback = () => {
+      const t = document.createElement("textarea");
+      t.value = text; t.setAttribute("readonly", ""); t.style.position = "fixed"; t.style.top = "-1000px";
+      document.body.appendChild(t); t.select(); t.setSelectionRange(0, text.length);
+      let ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+      document.body.removeChild(t);
+      done(ok);
+    };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(() => done(true), fallback);
+    } else {
+      fallback();
+    }
+  }
+  $("copy").onclick = () => copyText($("out").value, $("copy"));
+  $("copyPub").onclick = () => copyText($("newPub").value, $("copyPub"));
+  $("copyRec").onclick = () => copyText(lastRec, $("copyRec"));
+}
+
+document.getElementById('privFile').addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    const m = String(r.result).match(/\b[0-9a-fA-F]{64}\b/);
+    const box = document.getElementById('priv');
+    if (!m) { alert('Is file mein 64-harf wali key nahi mili'); return; }
+    box.value = m[0].toLowerCase();
+    box.dispatchEvent(new Event('input', {bubbles:true}));
+    e.target.value = '';
+  };
+  r.readAsText(f);
+});
+</script>
+</body>
+</html>

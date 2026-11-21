@@ -1,0 +1,76 @@
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/widgets.dart';
+import 'package:workmanager/workmanager.dart';
+
+import '../installment/inst_due_alert.dart';
+import '../services/bill_reminder_service.dart';
+import '../services/due_alert_service.dart';
+import 'backup_scheduler.dart';
+import 'offsite_backup.dart';
+
+/// Kotlin `BackupCheckpointWorker` (WorkManager, har 15 min) ka Flutter jor.
+/// App band / swipe-out hone par bhi Android 12 PM / 9 PM checkpoint check chalata hai.
+///
+/// * Sirf Android (Kotlin app bhi Android hi hai). iOS / Windows / web par kuch nahi karta —
+///   wahan purana Timer + resume wala BackupScheduler kaam karta rahta hai.
+/// * `ExistingWorkPolicy.keep` — har app start par register karna safe hai (duplicate nahi banta).
+/// * Ek din mein ek checkpoint ka stamp SharedPreferences mein hai; foreground aur background
+///   dono isi stamp ko dekhte hain (`BackupScheduler.checkCheckpoints` pehle `prefs.reload()` karta hai).
+class BackupBackground {
+  BackupBackground._();
+
+  /// workmanager 0.5 → 0.10: plugin ka Android package badla (be.tramckrijte → dev.fluttercommunity).
+  /// Purane naam par registered kaam purani (ab na-maujood) worker class ki taraf ishara karta hai aur
+  /// `keep` policy use hamesha zinda rakhti — naya kaam kabhi register na hota. Is liye naya naam,
+  /// aur purana naam ek dafa cancel.
+  static const uniqueName = 'ah_backup_checkpoints_v2';
+  static const legacyUniqueName = 'grocery_pos_backup_checkpoints'; // Kotlin WORK_NAME / workmanager 0.5
+  static const taskName = 'backup_checkpoint_check';
+
+  static bool get _supported => !kIsWeb && Platform.isAndroid;
+
+  /// `main()` mein ek baar (Kotlin `scheduleDailyCheckpoints`). Fail ho to app chalti rahe.
+  static Future<void> schedule() async {
+    if (!_supported) return;
+    try {
+      // workmanager 0.9: `isInDebugMode` hata diya gaya (debug ab hooks se).
+      await Workmanager().initialize(backupCallbackDispatcher);
+      try {
+        await Workmanager().cancelByUniqueName(legacyUniqueName);
+      } catch (_) {}
+      await Workmanager().registerPeriodicTask(
+        uniqueName,
+        taskName,
+        frequency: BackupScheduler.checkInterval, // 15 min = Android ka minimum
+        existingWorkPolicy: ExistingPeriodicWorkPolicy.keep, // 0.9: periodic ka apna enum
+      );
+    } catch (_) {
+      // Plugin na ho / OEM battery policy — foreground Timer fallback maujood hai.
+    }
+  }
+}
+
+/// Background isolate ka entry point. Top-level + `vm:entry-point` zaroori hai.
+@pragma('vm:entry-point')
+void backupCallbackDispatcher() {
+  Workmanager().executeTask((task, inputData) async {
+    try {
+      WidgetsFlutterBinding.ensureInitialized();
+      // Naye isolate mein DB / prefs / secure storage foreground jaise hi khulte hain
+      // (sqflite path file-based hai, isliye wahi live DB milti hai).
+      await BackupScheduler.instance.checkCheckpoints();
+      // Raat 9 ke baad: "aaj ka backup phone se bahar bhejein" (din mein ek dafa, agar bheja nahi).
+      await OffsiteBackup.checkAndNotify();
+      // Hanna Installment: POS udhaar (due reminder) ki notification band — qist ki apni (InstDueAlert) hai.
+      // Utility bills: ek din pehle / due din / guzarne ke baad reminder.
+      await BillReminderService.checkAndNotify();
+      // Hanna Installment: aaj ki / late qiston ki subah wali notification.
+      await InstDueAlert.checkAndNotify();
+      return true;
+    } catch (_) {
+      return false; // Kotlin Result.retry()
+    }
+  });
+}

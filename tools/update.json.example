@@ -1,0 +1,15 @@
+{
+  "android": {
+    "version": "1.0.0",
+    "build": 31,
+    "url": "https://github.com/asam3rana-del/hanna-updates/releases/download/build-31/app-release.apk",
+    "notes": "Naqd sale, khareed, nayi reports"
+  },
+  "windows": {
+    "version": "1.0.0",
+    "build": 31,
+    "url": "https://github.com/asam3rana-del/hanna-updates/releases/download/build-31/Hanna-Installment-windows.zip",
+    "notes": "Naqd sale, khareed, nayi reports"
+  },
+  "min_build": 0
+}

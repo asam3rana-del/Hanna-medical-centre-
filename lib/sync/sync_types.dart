@@ -1,0 +1,184 @@
+import 'package:sqflite/sqflite.dart';
+
+import '../models/misc_entities.dart';
+
+/// Kotlin `SyncApi.BranchNotConfiguredException`.
+class BranchNotConfiguredException implements Exception {
+  final String message;
+  const BranchNotConfiguredException(this.message);
+  @override
+  String toString() => message;
+}
+
+typedef SyncDoc = Map<String, Object?>;
+
+/// Kotlin `SyncApi.PullResult` — server se aayi hui badli hui documents, collection ke hisaab se.
+class PullResult {
+  final List<SyncDoc> customers;
+  final List<SyncDoc> suppliers;
+  final List<SyncDoc> products;
+  final List<SyncDoc> users;
+  final List<SyncDoc> sales;
+  final List<SyncDoc> purchases;
+  final List<SyncDoc> payments;
+  final List<SyncDoc> expenses;
+  final List<SyncDoc> cashTransactions;
+  final List<SyncDoc> units;
+  final List<SyncDoc> categories;
+  final List<SyncDoc> zakatYears;
+  final List<SyncDoc> zakatPayments;
+  final List<SyncDoc> returns;
+  final List<SyncDoc> stockMovements;
+  final List<SyncDoc> appSettings;
+  final List<SyncDoc> cashRegisters;
+  final List<SyncDoc> shellCustomers;
+  final List<SyncDoc> shellTransactions;
+  final List<SyncDoc> shopEmptyShellLogs;
+  final List<SyncDoc> workers;
+  final List<SyncDoc> workerAttendance;
+  final List<SyncDoc> workerAdvances;
+  final List<SyncDoc> workerSalaryPayments;
+  final List<SyncDoc> shopRents;
+  final List<SyncDoc> shopRentEntries;
+  final List<SyncDoc> utilityBills;
+  final List<SyncDoc> utilityBillPayments;
+  final List<SyncDoc> dueFollowups;
+
+  /// Hanna Installment: collection naam -> documents (lib/installment/inst_sync.dart).
+  final Map<String, List<SyncDoc>> installment;
+
+  /// Agli pull ka checkpoint (ms).
+  final int serverTime;
+
+  PullResult({
+    this.customers = const [],
+    this.suppliers = const [],
+    this.products = const [],
+    this.users = const [],
+    this.sales = const [],
+    this.purchases = const [],
+    this.payments = const [],
+    this.expenses = const [],
+    this.cashTransactions = const [],
+    this.units = const [],
+    this.categories = const [],
+    this.zakatYears = const [],
+    this.zakatPayments = const [],
+    this.returns = const [],
+    this.stockMovements = const [],
+    this.appSettings = const [],
+    this.cashRegisters = const [],
+    this.shellCustomers = const [],
+    this.shellTransactions = const [],
+    this.shopEmptyShellLogs = const [],
+    this.workers = const [],
+    this.workerAttendance = const [],
+    this.workerAdvances = const [],
+    this.workerSalaryPayments = const [],
+    this.shopRents = const [],
+    this.shopRentEntries = const [],
+    this.utilityBills = const [],
+    this.utilityBillPayments = const [],
+    this.dueFollowups = const [],
+    this.installment = const {},
+    int? serverTime,
+  }) : serverTime = serverTime ?? DateTime.now().millisecondsSinceEpoch;
+}
+
+/// SyncRepository jis se baat karta hai (Kotlin mein seedha `SyncApi` object). `SyncApi` (agli file)
+/// isay implement karegi; tests mein fake lagta hai.
+abstract class SyncBackend {
+  /// Ek queue entry Firestore par push. true = kamyab.
+  Future<bool> push(SyncQueueEntry entry);
+
+  /// `since` ke baad badla hua sab kuch. Branch code na ho => [BranchNotConfiguredException]; cloud/sign-in na mile => Exception.
+  Future<PullResult> pull(int since);
+
+  /// Pull ki hui changes local tables mein (ek merge).
+  Future<void> applyServerChanges(Database db, PullResult changes);
+
+  /// Firestore PERMISSION_DENIED?
+  bool isPermissionDenied(Object e);
+
+  /// PERMISSION_DENIED ka insaani paighaam (Loc English/Urdu).
+  String permissionDeniedMessage();
+}
+
+
+/// Internet/connection nahi — push ruk jata hai magar entry ka `retryCount` NAHI barhta
+/// (warna offline rehne par bill 10 baar "fail" ginke hamesha ke liye ruk jata tha).
+class SyncOfflineException implements Exception {
+  final String message;
+  const SyncOfflineException(this.message);
+  @override
+  String toString() => message;
+}
+
+/// Server ne push RAD kiya (security rules / permission denied). Poori queue ka masla hai, ek entry ka nahi:
+/// push ruk jata hai aur `retryCount` NAHI barhta (warna rules theek hone se pehle sab entries 10 baar
+/// "fail" ho kar hamesha ke liye stuck ho jati thin).
+class SyncPermissionDeniedException implements Exception {
+  final String message;
+  const SyncPermissionDeniedException(this.message);
+  @override
+  String toString() => message;
+}
+
+/// Ek entry ka asli push error (kharab payload, unknown entity, server ki ghalti) — `lastError` mein
+/// yahi likha jata hai, "push failed" jaisa be-matlab lafz nahi.
+class SyncPushException implements Exception {
+  final String message;
+  const SyncPushException(this.message);
+  @override
+  String toString() => message;
+}
+
+/// Firestore ka daily/minute quota khatam (resource-exhausted / "Quota exceeded")? Ye entry ki ghalti nahi —
+/// retryCount na barhao, warna quota wapas aane se pehle hi sari entries 10 baar fail ho kar stuck ho jati hain.
+bool isQuotaError(Object e) {
+  try {
+    final code = (e as dynamic).code;
+    if (code is String && code.toLowerCase().replaceAll('_', '-') == 'resource-exhausted') return true;
+  } catch (_) {}
+  return looksLikeQuotaMessage(e.toString());
+}
+
+bool looksLikeQuotaMessage(String s) {
+  final l = s.toLowerCase();
+  return l.contains('resource-exhausted') || l.contains('resource_exhausted') || l.contains('quota');
+}
+
+/// Network/connection ki ghalti hai (internet nahi, server ka rasta nahi, timeout)?
+bool isNetworkError(Object e) {
+  if (e is SyncOfflineException) return true;
+  final t = e.runtimeType.toString();
+  if (t == 'SocketException' || t == 'TimeoutException' || t == 'HandshakeException' || t == 'ClientException') {
+    return true;
+  }
+  try {
+    final code = (e as dynamic).code;
+    if (code is String && (code == 'unavailable' || code == 'deadline-exceeded' || code == 'network-request-failed')) {
+      return true;
+    }
+  } catch (_) {}
+  final s = e.toString().toLowerCase();
+  return s.contains('failed host lookup') ||
+      s.contains('network is unreachable') ||
+      s.contains('no address associated') ||
+      s.contains('connection refused') ||
+      s.contains('connection reset') ||
+      s.contains('unable to resolve host');
+}
+
+
+/// Pull ki chhupi kharabi jo sync ko "theek" dikhate hue data chhod deti hai — Sync Now ke natije mein dikhti hai.
+class PullDiagnostics {
+  PullDiagnostics._();
+
+  /// `pushedAt` (der se push hui entries) wali query fail hui — aksar Firestore index deploy nahi hua.
+  /// Khali = sab theek.
+  static String lateQueryIssue = '';
+
+  /// Jin collections ki late-push query fail hui (aakhri pull) — warning mein ginti.
+  static final Set<String> lateQueryFailed = <String>{};
+}
