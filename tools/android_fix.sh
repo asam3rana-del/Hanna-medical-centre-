@@ -598,3 +598,14 @@ if ! grep -q "coreLibraryDesugaring" "$GRADLE"; then
 fi
 grep -n "esugar" "$GRADLE"
 grep -q "esugar" "$GRADLE" || { echo "ERROR: core library desugaring not applied"; exit 1; }
+
+# --- Hanna Pharmacy POS: app icon (assets/branding/android/res -> generated project) ---
+# Legacy ic_launcher (har density) + Android 8+ adaptive icon (foreground + background rang).
+if [ -d assets/branding/android/res ]; then
+  cp -R assets/branding/android/res/. android/app/src/main/res/
+  MANIFEST_ICON=android/app/src/main/AndroidManifest.xml
+  grep -q 'android:icon="@mipmap/ic_launcher"' "$MANIFEST_ICON" \
+    || sed -i -E 's/android:icon="[^"]*"/android:icon="@mipmap\/ic_launcher"/' "$MANIFEST_ICON"
+  ls android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml >/dev/null || { echo "ERROR: app icon not copied"; exit 1; }
+  echo "=== App icon applied ==="
+fi
