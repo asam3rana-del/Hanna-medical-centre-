@@ -117,7 +117,7 @@ jobs:
       - run: flutter config --no-enable-swift-package-manager
 
       # Repo has no ios/ or android/ folders, so generate them.
-      # App ID: Android tools/android_fix.sh mein, iOS neeche "Set iOS app name" step mein (com.hannasolutions.pos).
+      # App ID: Android tools/android_fix.sh mein, iOS neeche "Set iOS app name" step mein (com.hannasolutions.medical).
       - run: flutter create --platforms=ios,android --project-name ah_developer_kiryana_store .
 
       # Flutter 3.47 ka `flutter create` dependencies naye patch par upgrade kar deta hai — commit wali lock wapas.
@@ -129,7 +129,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 'Hanna Medical Store'" ios/Runner/Info.plist
           /usr/libexec/PlistBuddy -c "Set :CFBundleName 'Hanna Medical Store'" ios/Runner/Info.plist
           # App ID (bundle identifier) — Android ke saath ek jaisa. Kabhi na badlein.
-          sed -i '' -E 's/PRODUCT_BUNDLE_IDENTIFIER = com\.example\.[A-Za-z0-9_]+/PRODUCT_BUNDLE_IDENTIFIER = com.hannasolutions.pos/g' ios/Runner.xcodeproj/project.pbxproj
+          sed -i '' -E 's/PRODUCT_BUNDLE_IDENTIFIER = com\.example\.[A-Za-z0-9_]+/PRODUCT_BUNDLE_IDENTIFIER = com.hannasolutions.medical/g' ios/Runner.xcodeproj/project.pbxproj
           grep -m3 "PRODUCT_BUNDLE_IDENTIFIER" ios/Runner.xcodeproj/project.pbxproj
           ! grep -q "PRODUCT_BUNDLE_IDENTIFIER = com.example" ios/Runner.xcodeproj/project.pbxproj || { echo "::error::iOS bundle id nahi badla"; exit 1; }
 
@@ -211,7 +211,7 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # App ID: Android tools/android_fix.sh mein, iOS neeche "Set iOS app name" step mein (com.hannasolutions.pos).
+      # App ID: Android tools/android_fix.sh mein, iOS neeche "Set iOS app name" step mein (com.hannasolutions.medical).
       - run: flutter create --platforms=ios,android --project-name ah_developer_kiryana_store .
 
       # Flutter 3.47 ka `flutter create` dependencies naye patch par upgrade kar deta hai — commit wali lock wapas.
@@ -239,6 +239,8 @@ jobs:
       - name: Android fixes + fixed signing key
         run: bash tools/android_fix.sh
         env:
+          # Hanna Medical Store ka apna package — Hanna POS ke saath alag install hota hai.
+          APP_ID: com.hannasolutions.medical
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
