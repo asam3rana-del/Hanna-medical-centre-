@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+
       - name: Unzip into repo
         id: unzip
         run: |
@@ -26,46 +27,38 @@ jobs:
             fi
             rm -rf /tmp/x && mkdir /tmp/x
             unzip -q "$z" -d /tmp/x
+            rm -f "$z"
             SRC=$(find /tmp/x -mindepth 1 -maxdepth 1 -type d | head -1)
             [ -n "$SRC" ] || SRC=/tmp/x
-            rsync -a --exclude '.github' --exclude '.git' "$SRC"/ ./
-            # Zip ke saath `.import-delete.txt` ho to us mein likhi files repo se mitao (rsync khud nahi mitata).
-            # Hifazat: khali / # wali lines, '..', '/' se shuru, .github / .git chhor do.
-            if [ -f .import-delete.txt ]; then
-              while IFS= read -r f || [ -n "$f" ]; do
-                f="${f%$'\r'}"
-                case "$f" in ""|\#*|*..*|/*|.github*|.git/*|.git) continue ;; esac
-                if [ -e "$f" ]; then git rm -rq --ignore-unmatch -- "$f" || rm -rf -- "$f"; echo "deleted: $f"; fi
-              done < .import-delete.txt
-              rm -f .import-delete.txt
-            fi
-            rm -f "$z"
+            # --delete: jo file zip mein nahi wo repo se bhi hat jati hai, taake repo bilkul
+            # zip jaisa ho (purane/doosre project ki files na bachein). .github aur .git mehfooz.
+            # Is liye hamesha POORE project ki zip dalein, aadhi zip nahi.
+            rsync -a --delete --exclude '.github' --exclude '.git' "$SRC"/ ./
             did=1
           done
           echo "did=$did" >> "$GITHUB_OUTPUT"
-          # Naya package (pubspec.yaml badla): pubspec.lock yahin dobara bana kar saath commit — Build ka lock check
-          # phir khud pass (haath se accept_new_lockfile / artifact ki zaroorat nahi).
-          if [ "$did" = "1" ] && ! git diff --quiet -- pubspec.yaml; then echo "lock=1" >> "$GITHUB_OUTPUT"; fi
+
       - uses: subosito/flutter-action@v2
-        if: steps.unzip.outputs.lock == '1'
+        if: steps.unzip.outputs.did == '1'
         with:
           flutter-version: '3.47.x'
           channel: 'stable'
           cache: true
+
       - name: Refresh pubspec.lock
-        if: steps.unzip.outputs.lock == '1'
-        run: |
-          flutter pub get
-          git diff --stat -- pubspec.lock || true
+        if: steps.unzip.outputs.did == '1'
+        run: flutter pub get
+
       - name: Commit
         run: |
           git config user.name "import-bot"
           git config user.email "bot@users.noreply.github.com"
           git add -A
           git commit -m "Import zip" || echo "nothing to commit"
-          # Jis branch par zip aayi usi par commit (main ya alag feature branch).
+          # Jis branch par zip aayi usi par commit.
           git pull --rebase origin "$GITHUB_REF_NAME" || true
           git push
+
       - name: Trigger Build on updated code
         if: steps.unzip.outputs.did == '1'
         env:
