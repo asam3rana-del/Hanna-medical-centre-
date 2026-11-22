@@ -123,11 +123,11 @@ jobs:
       # Flutter 3.47 ka `flutter create` dependencies naye patch par upgrade kar deta hai — commit wali lock wapas.
       - run: git checkout -- pubspec.yaml pubspec.lock
 
-      # App ka naam (home screen par): Hanna Medical Store.
+      # App ka naam (home screen par): Hanna Pharmacy POS.
       - name: Set iOS app name
         run: |
-          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 'Hanna Medical Store'" ios/Runner/Info.plist
-          /usr/libexec/PlistBuddy -c "Set :CFBundleName 'Hanna Medical Store'" ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 'Hanna Pharmacy POS'" ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleName 'Hanna Pharmacy POS'" ios/Runner/Info.plist
           # App ID (bundle identifier) — Android ke saath ek jaisa. Kabhi na badlein.
           sed -i '' -E 's/PRODUCT_BUNDLE_IDENTIFIER = com\.example\.[A-Za-z0-9_]+/PRODUCT_BUNDLE_IDENTIFIER = com.hannasolutions.medical/g' ios/Runner.xcodeproj/project.pbxproj
           grep -m3 "PRODUCT_BUNDLE_IDENTIFIER" ios/Runner.xcodeproj/project.pbxproj
@@ -239,7 +239,7 @@ jobs:
       - name: Android fixes + fixed signing key
         run: bash tools/android_fix.sh
         env:
-          # Hanna Medical Store ka apna package — Hanna POS ke saath alag install hota hai.
+          # Hanna Pharmacy POS ka apna package — Hanna POS ke saath alag install hota hai.
           APP_ID: com.hannasolutions.medical
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -308,10 +308,10 @@ jobs:
             fi
           fi
 
-      # Window title: Hanna Medical Store.
+      # Window title: Hanna Pharmacy POS.
       - name: Set Windows window title
         shell: pwsh
-        run: (Get-Content windows/runner/main.cpp) -replace 'L"ah_developer_kiryana_store"', 'L"Hanna Medical Store"' | Set-Content windows/runner/main.cpp
+        run: (Get-Content windows/runner/main.cpp) -replace 'L"ah_developer_kiryana_store"', 'L"Hanna Pharmacy POS"' | Set-Content windows/runner/main.cpp
 
       - run: flutter build windows --release
 
