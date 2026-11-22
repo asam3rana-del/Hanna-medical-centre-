@@ -13,7 +13,7 @@ import 'stock_ledger.dart';
 ///
 /// DB version starts at 1 here since this is a fresh Flutter DB file (not a
 /// migration of the existing Android SQLite file). If you later decide to
-/// import the existing Hanna Medical Store data, add an import routine
+/// import the existing Hanna Pharmacy POS data, add an import routine
 /// rather than trying to open the old .db file directly with a different
 /// schema version.
 class AppDatabase {
@@ -368,7 +368,7 @@ class AppDatabase {
 
     batch.insert('categories', {'name': 'General'});
     batch.insert('units', {'name': 'pcs'});
-    // Hanna Medical Store: dawai ki aam units (naye install par).
+    // Hanna Pharmacy POS: dawai ki aam units (naye install par).
     for (final u in const ['tablet', 'capsule', 'strip', 'pack', 'box', 'bottle', 'tube', 'vial', 'ampoule', 'sachet']) {
       batch.insert('units', {'name': u});
     }
@@ -600,7 +600,7 @@ class AppDatabase {
       await db.execute(ReturnUndoRepository.createSql);
     }
     if (oldVersion < 39) {
-      // v39 (Hanna Medical Store): dawai ka formula / company / rack, aur purchase line ka batch + expiry.
+      // v39 (Hanna Pharmacy POS): dawai ka formula / company / rack, aur purchase line ka batch + expiry.
       await _addColumnIfMissing(db, 'products', 'genericName', "TEXT NOT NULL DEFAULT ''");
       await _addColumnIfMissing(db, 'products', 'company', "TEXT NOT NULL DEFAULT ''");
       await _addColumnIfMissing(db, 'products', 'rackLocation', "TEXT NOT NULL DEFAULT ''");

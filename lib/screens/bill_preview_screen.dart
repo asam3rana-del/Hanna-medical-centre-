@@ -286,7 +286,7 @@ class _BillPreviewScreenState extends State<BillPreviewScreen> {
               boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 8, offset: Offset(0, 2))],
             ),
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Text(d.shopName.trim().isEmpty ? 'Hanna Medical Store' : d.shopName.trim(),
+              Text(d.shopName.trim().isEmpty ? 'Hanna Pharmacy POS' : d.shopName.trim(),
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: ThemeManager.palette.navyInk)),
               if (contact.isNotEmpty)
@@ -393,7 +393,7 @@ class _BillPreviewScreenState extends State<BillPreviewScreen> {
             border: Border.all(color: ThemeManager.palette.border),
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Text(d.shopName.trim().isEmpty ? 'Hanna Medical Store' : d.shopName.trim(),
+            Text(d.shopName.trim().isEmpty ? 'Hanna Pharmacy POS' : d.shopName.trim(),
                 textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: ThemeManager.palette.navyInk)),
             if (d.shopOwner.trim().isNotEmpty)
               Text(d.shopOwner.trim(), textAlign: TextAlign.center, style: TextStyle(color: ThemeManager.palette.navyInk, fontSize: 14, fontWeight: FontWeight.w600)),

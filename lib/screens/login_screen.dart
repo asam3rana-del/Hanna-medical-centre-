@@ -621,7 +621,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   CircleAvatar(radius: 40, backgroundColor: Colors.white, child: Icon(Icons.lock, size: 36, color: ThemeManager.palette.navyInk)),
                   const SizedBox(height: 16),
-                  const Text('Hanna Medical Store', style: TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.bold)),
+                  const Text('Hanna Pharmacy POS', style: TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
                   Text(_setupMode ? Loc.t('First-time setup', 'پہلی دفعہ سیٹ اپ') : 'Point of Sale',
                       style: TextStyle(color: ThemeManager.palette.headerSubtitleColor)),

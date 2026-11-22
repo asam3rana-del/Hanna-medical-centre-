@@ -118,7 +118,7 @@ class AhDeveloperApp extends StatelessWidget {
           // zabaan / theme badalne par saari screens dobara ban jayein
           // Demo on/off par bhi poora tree naya (kisi screen mein doosri dukaan ka purana data na reh jaye).
           key: ValueKey('$lang-$dark-$demo'),
-          title: demo ? 'Hanna Medical Store (DEMO)' : 'Hanna Medical Store',
+          title: demo ? 'Hanna Pharmacy POS (DEMO)' : 'Hanna Pharmacy POS',
           debugShowCheckedModeBanner: false,
           theme: _buildTheme(p, dark),
           // Desktop: mouse se bhi drag-scroll (touch-screen POS jaisa).

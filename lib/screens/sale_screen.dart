@@ -246,8 +246,8 @@ class _SaleScreenState extends State<SaleScreen> with WidgetsBindingObserver {
   /// Items khatam: Enter khali item box pe -> Discount.
   void _focusAfterItems() => _focus(_discountFocus);
 
-  // Kotlin loadFirmName(): saved shop_name, warna "Hanna Medical Store".
-  String _firmName = 'Hanna Medical Store';
+  // Kotlin loadFirmName(): saved shop_name, warna "Hanna Pharmacy POS".
+  String _firmName = 'Hanna Pharmacy POS';
 
   Future<void> _loadFirmName() async {
     final n = (await UserRepository.instance.getSetting('shop_name'))?.trim() ?? '';
@@ -523,7 +523,7 @@ class _SaleScreenState extends State<SaleScreen> with WidgetsBindingObserver {
     _checkMedicineExpiry(p);
   }
 
-  /// Hanna Medical Store: expired / 30 din mein expire hone wali dawai par warning (rack/formula bhi).
+  /// Hanna Pharmacy POS: expired / 30 din mein expire hone wali dawai par warning (rack/formula bhi).
   Future<void> _checkMedicineExpiry(Product p) async {
     String? warning;
     try {

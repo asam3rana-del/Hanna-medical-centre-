@@ -1,6 +1,6 @@
-# Hanna Medical Store — Flutter (branch Raffey)
+# Hanna Pharmacy POS — Flutter (branch Raffey)
 
-App ka naam: **Hanna Medical Store** (Android label, iOS, Windows, AppInfo, default shop name).
+App ka naam: **Hanna Pharmacy POS** (Android label, iOS, Windows, AppInfo, default shop name).
 DB schema v38 -> **v39** (`_onUpgrade`: sirf ADD COLUMN, purana data mehfooz). Migration tests v39 par update.
 
 ## Naye features (Kotlin app ke barabar, same Firestore fields)

@@ -39,7 +39,7 @@ String buildSaleBillText({
   }
 
   final rule = '-' * width;
-  b.writeln(center(shopName.isEmpty ? 'Hanna Medical Store' : shopName));
+  b.writeln(center(shopName.isEmpty ? 'Hanna Pharmacy POS' : shopName));
   if (shopOwner.trim().isNotEmpty) b.writeln(center(shopOwner.trim()));
   if (shopPhone.isNotEmpty) b.writeln(center(shopPhone));
   b.writeln(rule);
@@ -101,7 +101,7 @@ String buildPurchaseBillText({
   }
 
   final rule = '-' * width;
-  b.writeln(center(shopName.isEmpty ? 'Hanna Medical Store' : shopName));
+  b.writeln(center(shopName.isEmpty ? 'Hanna Pharmacy POS' : shopName));
   if (shopOwner.trim().isNotEmpty) b.writeln(center(shopOwner.trim()));
   if (shopPhone.isNotEmpty) b.writeln(center(shopPhone));
   b.writeln(center('PURCHASE BILL'));
@@ -155,7 +155,7 @@ String buildPurchaseReturnText({
   }
 
   final rule = '-' * width;
-  b.writeln(center(shopName.isEmpty ? 'Hanna Medical Store' : shopName));
+  b.writeln(center(shopName.isEmpty ? 'Hanna Pharmacy POS' : shopName));
   if (shopOwner.trim().isNotEmpty) b.writeln(center(shopOwner.trim()));
   if (shopPhone.isNotEmpty) b.writeln(center(shopPhone));
   b.writeln(center('PURCHASE RETURN'));
@@ -211,7 +211,7 @@ String buildSaleReturnText({
   }
 
   final rule = '-' * width;
-  b.writeln(center(shopName.isEmpty ? 'Hanna Medical Store' : shopName));
+  b.writeln(center(shopName.isEmpty ? 'Hanna Pharmacy POS' : shopName));
   if (shopOwner.trim().isNotEmpty) b.writeln(center(shopOwner.trim()));
   if (shopPhone.isNotEmpty) b.writeln(center(shopPhone));
   b.writeln(center('SALE RETURN'));

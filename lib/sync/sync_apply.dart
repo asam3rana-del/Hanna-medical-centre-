@@ -396,7 +396,7 @@ Future<void> applyProducts(DatabaseExecutor db, List<SyncDoc> rows, {required in
     if (row.containsKey('shopkeeperPrice')) common['shopkeeperPrice'] = _d(row['shopkeeperPrice']) ?? 0.0;
     // Rate effective date: purane device ka doc (field nahi) local date 0 na kare.
     if (row.containsKey('ratesAt')) common['ratesAt'] = _d(row['ratesAt'])?.toInt() ?? 0;
-    // Hanna Medical Store: purane device ka doc (field nahi) local formula/company/rack na mitaye.
+    // Hanna Pharmacy POS: purane device ka doc (field nahi) local formula/company/rack na mitaye.
     if (row.containsKey('genericName')) common['genericName'] = _s(row['genericName']) ?? '';
     if (row.containsKey('company')) common['company'] = _s(row['company']) ?? '';
     if (row.containsKey('rackLocation')) common['rackLocation'] = _s(row['rackLocation']) ?? '';

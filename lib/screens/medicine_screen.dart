@@ -7,7 +7,7 @@ import '../services/session.dart';
 import '../theme/theme_manager.dart';
 import '../utils/medical_expiry.dart';
 
-/// Hanna Medical Store: do tabs —
+/// Hanna Pharmacy POS: do tabs —
 ///  1) Expiry: shelf par har batch, filter Expired / 30 din / 90 din / Sab (FIFO andaza, MedicalBatches).
 ///  2) Dawai / Formula: naam, formula (generic) ya company se search; dawai par tap = batches + substitute.
 class MedicineScreen extends StatefulWidget {

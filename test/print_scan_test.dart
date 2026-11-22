@@ -273,7 +273,7 @@ void _desktopPrinterTests() {
 
     test('test slip uses shop name or default and shows connection', () {
       expect(EscPos.testText(shopName: ' Ali Store ', connection: 'NETWORK'), contains('Ali Store'));
-      expect(EscPos.testText(), contains('Hanna Medical Store'));
+      expect(EscPos.testText(), contains('Hanna Pharmacy POS'));
       expect(EscPos.testText(connection: 'USB'), contains('Connection: USB'));
     });
   });

@@ -59,7 +59,7 @@ String _r(double v) => v.round().toString();
 List<ReceiptLine> receiptHeader(BillDoc d) {
   final sub = <String>[if (d.shopPhone.trim().isNotEmpty) d.shopPhone.trim()];
   return [
-    RlCenter(d.shopName.trim().isEmpty ? 'Hanna Medical Store' : d.shopName.trim(), bold: true),
+    RlCenter(d.shopName.trim().isEmpty ? 'Hanna Pharmacy POS' : d.shopName.trim(), bold: true),
     if (d.shopOwner.trim().isNotEmpty) RlCenter(d.shopOwner.trim(), bold: true),
     if (sub.isNotEmpty) RlCenter(sub.join('  •  ')),
     if (d.isPurchase) const RlCenter('PURCHASE BILL', bold: true),

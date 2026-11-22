@@ -62,7 +62,7 @@ class AboutScreen extends StatelessWidget {
           leading: const Icon(Icons.email_outlined),
           title: Text(Loc.t('Email support', 'ای میل سپورٹ')),
           subtitle: const Text(AppInfo.supportEmail),
-          onTap: () => _open(context, Uri(scheme: 'mailto', path: AppInfo.supportEmail, query: 'subject=Hanna Medical Store support')),
+          onTap: () => _open(context, Uri(scheme: 'mailto', path: AppInfo.supportEmail, query: 'subject=Hanna Pharmacy POS support')),
         ),
         const Divider(height: 32),
         ListTile(
@@ -77,7 +77,7 @@ class AboutScreen extends StatelessWidget {
           isThreeLine: true,
           onTap: () => _open(
             context,
-            Uri(scheme: 'mailto', path: AppInfo.supportEmail, query: 'subject=Hanna Medical Store - delete my data'),
+            Uri(scheme: 'mailto', path: AppInfo.supportEmail, query: 'subject=Hanna Pharmacy POS - delete my data'),
           ),
         ),
       ]),

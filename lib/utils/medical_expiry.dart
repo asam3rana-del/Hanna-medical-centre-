@@ -4,7 +4,7 @@ import '../db/app_database.dart';
 import '../models/product.dart';
 import 'expiry.dart' show parseExpiry, daysUntilExpiry;
 
-/// Hanna Medical Store: batch / expiry helpers (Kotlin MedicalHelpers.kt ka port).
+/// Hanna Pharmacy POS: batch / expiry helpers (Kotlin MedicalHelpers.kt ka port).
 ///
 /// Expiry "yyyy-MM" mein jama hoti hai (e.g. "2027-06") kyun ke dawai par sirf mahina/saal chhapa hota
 /// hai ("EXP 06/27"). Pack us mahine ke AAKHRI din tak valid samjha jata hai.

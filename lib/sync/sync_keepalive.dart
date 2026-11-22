@@ -45,7 +45,7 @@ class SyncKeepAlive {
       }
       await FlutterForegroundTask.startService(
         serviceId: 4711,
-        notificationTitle: 'Hanna Medical Store',
+        notificationTitle: 'Hanna Pharmacy POS',
         notificationText: 'Cloud sync chal raha hai',
       );
       _started = true;

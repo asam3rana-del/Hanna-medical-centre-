@@ -86,7 +86,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> with WidgetsBindingObse
   final _wholesaleCtrl = TextEditingController();
   final _shopkeeperCtrl = TextEditingController();
   final _paidCtrl = TextEditingController();
-  // Hanna Medical Store: is line ka Batch No. aur Expiry (MM/YY)
+  // Hanna Pharmacy POS: is line ka Batch No. aur Expiry (MM/YY)
   final _batchCtrl = TextEditingController();
   final _batchFocus = FocusNode();
   final _expiryCtrl = TextEditingController();
@@ -652,7 +652,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> with WidgetsBindingObse
       _mainRate = product.toPrimaryUnitRate(rate, _effectiveUnit);
     }
 
-    // Hanna Medical Store: expiry MM/YY samjho; ghalat ho to wahin roko.
+    // Hanna Pharmacy POS: expiry MM/YY samjho; ghalat ho to wahin roko.
     final expiry = MedicalExpiry.parse(_expiryCtrl.text);
     if (expiry == null) {
       _toast('Expiry MM/YY likhen, e.g. 06/27');
@@ -1496,8 +1496,8 @@ class _PurchaseScreenState extends State<PurchaseScreen> with WidgetsBindingObse
   static const Color _kBlue = Color(0xFF1450C7);
   static const Color _kGreen = Color(0xFF0E8A52);
 
-  // Kotlin loadFirmName(): saved shop_name, warna "Hanna Medical Store".
-  String _firmName = 'Hanna Medical Store';
+  // Kotlin loadFirmName(): saved shop_name, warna "Hanna Pharmacy POS".
+  String _firmName = 'Hanna Pharmacy POS';
 
   Future<void> _loadFirmName() async {
     final n = (await UserRepository.instance.getSetting('shop_name'))?.trim() ?? '';
@@ -2024,7 +2024,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> with WidgetsBindingObse
         ),
       );
 
-  /// Hanna Medical Store: Batch No. + Expiry (MM/YY), ek line mein.
+  /// Hanna Pharmacy POS: Batch No. + Expiry (MM/YY), ek line mein.
   Widget _batchExpiryRow() => Padding(
         padding: const EdgeInsets.only(top: 12),
         child: Row(
@@ -2411,7 +2411,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> with WidgetsBindingObse
                             '${qtyText(line.qty)} ${line.unit}  ×  ${line.rate.toStringAsFixed(2)}',
                             style: TextStyle(fontSize: 11.5, color: ThemeManager.palette.textMuted),
                           ),
-                          // Hanna Medical Store: is line ka batch / expiry
+                          // Hanna Pharmacy POS: is line ka batch / expiry
                           if (line.batchNo.isNotEmpty || line.expiry.isNotEmpty)
                             Text(
                               [

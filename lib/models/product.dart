@@ -46,7 +46,7 @@ class Product {
   /// Mirrors Product.quickSaleDefaultUnitIndex in Database.kt.
   final int quickSaleDefaultUnitIndex;
 
-  /// Hanna Medical Store (DB v39): dawai ka formula/salt, company, aur rack/shelf. Sab optional.
+  /// Hanna Pharmacy POS (DB v39): dawai ka formula/salt, company, aur rack/shelf. Sab optional.
   /// genericName + company bhi [matchesQuery] mein hain; same genericName = substitute dawai.
   final String genericName;
   final String company;

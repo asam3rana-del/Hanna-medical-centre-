@@ -38,7 +38,7 @@ class PurchaseLine {
   final double wholesaleRate;
   final double shopkeeperRate;
 
-  /// Hanna Medical Store: batch number aur expiry ("yyyy-MM"; '' = nahi likha).
+  /// Hanna Pharmacy POS: batch number aur expiry ("yyyy-MM"; '' = nahi likha).
   final String batchNo;
   final String expiry;
 

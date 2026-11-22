@@ -87,7 +87,7 @@ class PurchaseItem {
   /// Purchase ke waqt set kiya gaya Shopkeeper rate (0 = product ka shopkeeper rate nahi badla).
   final double shopkeeperRate;
 
-  /// Hanna Medical Store (DB v39): is line ka batch number aur expiry ("yyyy-MM", '' = nahi likha).
+  /// Hanna Pharmacy POS (DB v39): is line ka batch number aur expiry ("yyyy-MM", '' = nahi likha).
   final String batchNo;
   final String expiry;
 

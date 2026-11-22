@@ -76,7 +76,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   static const _partyRed = Color(0xFFD32F4A);
   static const _partyRedBg = Color(0xFFFCEBEB);
 
-  static const _defaultShopName = 'Hanna Medical Store';
+  static const _defaultShopName = 'Hanna Pharmacy POS';
 
   AppPalette get _p => ThemeManager.palette;
 
@@ -494,7 +494,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _Action('Low Stock', 'کم اسٹاک', 'Items needing restock', 'دوبارہ منگوانے والی اشیاء', Icons.warning_amber_rounded, _partyRedBg,
           _partyRed,
           open: () => const StockReportScreen(lowStockOnly: true)),
-      // Hanna Medical Store: batch-wise expiry report + formula / substitute search.
+      // Hanna Pharmacy POS: batch-wise expiry report + formula / substitute search.
       _Action('Expiry', 'ایکسپائری', 'Expired & near-expiry', 'ایکسپائر اور قریب', Icons.event_busy_outlined, _partyRedBg, _partyRed,
           open: () => const MedicineScreen()),
       _Action('Formula Search', 'فارمولا سرچ', 'Medicine, formula & substitute', 'دوائی، فارمولا اور متبادل', Icons.medication_outlined,

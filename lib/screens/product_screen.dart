@@ -31,7 +31,7 @@ class _ProductScreenState extends State<ProductScreen> {
   final _nameCtrl = TextEditingController();
   final _categoryCtrl = TextEditingController();
   final _tagCtrl = TextEditingController();
-  // Hanna Medical Store: formula / company / rack
+  // Hanna Pharmacy POS: formula / company / rack
   final _genericCtrl = TextEditingController();
   final _companyCtrl = TextEditingController();
   final _rackCtrl = TextEditingController();
@@ -763,7 +763,7 @@ class _ProductScreenState extends State<ProductScreen> {
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: ThemeManager.palette.border)),
             ),
           ),
-          // Hanna Medical Store: Formula / Company / Rack (sab optional; formula se search + substitute)
+          // Hanna Pharmacy POS: Formula / Company / Rack (sab optional; formula se search + substitute)
           const SizedBox(height: 10),
           _medField(_genericCtrl, 'Formula / Generic (e.g. Paracetamol 500mg)'),
           const SizedBox(height: 10),

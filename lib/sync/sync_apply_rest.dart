@@ -284,7 +284,7 @@ Future<void> applyPurchases(DatabaseExecutor db, List<SyncDoc> rows, {required i
           'wholesaleRate': _d(im['wholesaleRate']) ?? 0.0,
           // Purane device ki entry mein field nahi => 0 (kuch nahi tootta).
           'shopkeeperRate': _d(im['shopkeeperRate']) ?? 0.0,
-          // Hanna Medical Store: batch + expiry
+          // Hanna Pharmacy POS: batch + expiry
           if (im.containsKey('batchNo')) 'batchNo': _s(im['batchNo']) ?? '',
           if (im.containsKey('expiry')) 'expiry': _s(im['expiry']) ?? '',
         });

@@ -2,7 +2,7 @@
 class AppInfo {
   AppInfo._();
 
-  static const appName = 'Hanna Medical Store';
+  static const appName = 'Hanna Pharmacy POS';
   static const developer = 'Asam Hameed';
   static const business = 'Hanna Solutions';
   static const appId = 'com.hannasolutions.pos';

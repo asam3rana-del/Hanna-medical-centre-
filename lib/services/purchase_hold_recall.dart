@@ -56,7 +56,7 @@ String encodePurchaseHold(PurchaseDraft d) {
             l.retailRate,
             l.wholesaleRate,
             l.shopkeeperRate,
-            // Hanna Medical Store: batch / expiry sirf tab jab likha ho (purana format barqarar)
+            // Hanna Pharmacy POS: batch / expiry sirf tab jab likha ho (purana format barqarar)
             if (l.batchNo.isNotEmpty || l.expiry.isNotEmpty) ...[l.batchNo, l.expiry],
           ].join(_sepItemField))
       .join(_sepRow);

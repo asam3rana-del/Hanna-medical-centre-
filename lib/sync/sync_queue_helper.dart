@@ -225,7 +225,7 @@ class SyncQueueHelper {
         'defaultUnitIndex': p['defaultUnitIndex'],
         'quickSaleDefaultUnitIndex': p['quickSaleDefaultUnitIndex'],
         'searchTag': p['searchTag'],
-        // Hanna Medical Store (Kotlin app jaise hi field naam)
+        // Hanna Pharmacy POS (Kotlin app jaise hi field naam)
         // (sirf jab local row mein column ho — purana schema/test table ho to field bheji hi nahi jati)
         if (p.containsKey('genericName')) 'genericName': p['genericName'] ?? '',
         if (p.containsKey('company')) 'company': p['company'] ?? '',
@@ -498,7 +498,7 @@ class SyncQueueHelper {
           'retailRate': it['retailRate'],
           'wholesaleRate': it['wholesaleRate'],
           'shopkeeperRate': it['shopkeeperRate'] ?? 0,
-          // Hanna Medical Store: batch + expiry
+          // Hanna Pharmacy POS: batch + expiry
           if (it.containsKey('batchNo')) 'batchNo': it['batchNo'] ?? '',
           if (it.containsKey('expiry')) 'expiry': it['expiry'] ?? '',
         }
