@@ -40,6 +40,7 @@ void main() {
 
   // ---- what each migration step added (version -> things to remove when rewinding below it) ----
   final steps = <_Step>[
+    _Step(40, tables: ['rx_records'], columns: {'products': ['controlled']}),
     _Step(39, columns: {'products': ['genericName', 'company', 'rackLocation'], 'purchase_items': ['batchNo', 'expiry']}),
     _Step(38, tables: ['return_undo']),
     _Step(37, columns: {'customers': ['paySchedule', 'qistPlan']}),
@@ -170,7 +171,7 @@ void main() {
   test('fresh install: schema version, integrity, default seed rows', () async {
     final db = await AppDatabase.instance.database;
     await expectHealthy(db);
-    expect(AppDatabase.schemaVersion, 39);
+    expect(AppDatabase.schemaVersion, 40);
     expect((await db.query('categories')).map((r) => r['name']), contains('General'));
     expect((await db.query('units')).map((r) => r['name']), contains('pcs'));
   });

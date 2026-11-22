@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../app_info.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -36,6 +37,7 @@ import 'party_transaction_screen.dart';
 import 'purchase_screen.dart';
 import 'sale_screen.dart';
 import 'medicine_screen.dart';
+import 'rx_register_screen.dart';
 import 'settings_screen.dart';
 import 'stock_report_screen.dart';
 
@@ -464,7 +466,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             open: () => const RoleGuard(allowed: _admin, child: PurchaseScreen())),
       // Daily Bills (admin/manager) ab seedha dashboard par; Cash in/out dashboard se hata diya
       // (Settings -> Cash & Bank aur Customers & Suppliers se ab bhi khulta hai).
-      if (_am.contains(role))
+      if (!AppInfo.pharmacyMode && _am.contains(role))
         _Action('Daily Bills', 'روزانہ بلز', 'One bill per customer per day', 'ہر کسٹمر کا دن کا ایک بل', Icons.receipt_long_outlined,
             p.flatAmberBg, p.flatAmberFg,
             open: () => const DailyBillsScreen()),
@@ -477,7 +479,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _Action('Payment\nMade', 'ادائیگی\nادا', 'Money paid to a supplier', 'سپلائر کو رقم ادا', Icons.north_east, p.flatCoralBg,
             p.flatCoralFg,
             onTap: () => _quickPayment(forCustomer: false)),
-      if (Permissions.can('due_reminders'))
+      if (!AppInfo.pharmacyMode && Permissions.can('due_reminders'))
         _Action('Collection', 'وصولی', 'Remind today + all pending dues', 'آج کی یاد دہانی اور تمام بقایا', Icons.bolt_rounded,
             p.flatAmberBg, p.flatAmberFg,
             open: () => const CollectionHubScreen(), badge: _autopilotTodo > 0 ? _autopilotTodo : (_focus?.overdueCount ?? 0)),
@@ -487,7 +489,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           open: () => const PartyDashboardScreen()),
       // Amanat / Loan: ab Due Reminders se alag, seedha dashboard par (add / edit / delete wahin;
       // party 'customers' table se hi sync hoti hai, is liye baqi parties ki tarah sab devices par auto-sync).
-      if (_am.contains(role))
+      if (!AppInfo.pharmacyMode && _am.contains(role))
         _Action('Deposit / Loan', 'امانت / قرض', 'Deposits held & loans given', 'رکھوائی امانت اور دیے گئے قرض', Icons.account_balance_wallet_outlined,
             p.flatAmberBg, p.flatAmberFg,
             open: () => const AmanatLoanScreen()),
@@ -500,6 +502,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _Action('Formula Search', 'فارمولا سرچ', 'Medicine, formula & substitute', 'دوائی، فارمولا اور متبادل', Icons.medication_outlined,
           p.flatTealBg, p.flatTealFg,
           open: () => const MedicineScreen(openSearch: true)),
+      if (_am.contains(role))
+        _Action('Rx Register', 'نسخہ رجسٹر', 'Controlled drugs & prescriptions', 'کنٹرولڈ ادویات اور نسخے', Icons.assignment_outlined,
+            p.flatPurpleBg, p.flatPurpleFg,
+            open: () => const RxRegisterScreen()),
       // Kotlin jaisa: Items tile sab roles ko (koi gate nahi). ItemsScreen ke andar cashier ko cost nahi
       // dikhta aur add/edit/delete sirf admin (lib/screens/items_screen.dart, items_repository.dart).
       _Action('Items', 'آئٹمز', 'Products, categories & units', 'پروڈکٹس، کیٹیگریز اور یونٹس', Icons.list_alt, p.flatBlueBg, p.flatBlueFg,
@@ -535,7 +541,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 _searchBar(p),
                 if (_query.isNotEmpty) _unifiedResults(p),
-                if (_focus != null) ...[
+                if (!AppInfo.pharmacyMode && _focus != null) ...[
                   const SizedBox(height: 18),
                   TodaysCollectionCard(
                     focus: _focus!,

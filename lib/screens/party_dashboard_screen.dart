@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../app_info.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:intl/intl.dart';
@@ -498,7 +499,7 @@ class _PartyDashboardScreenState extends State<PartyDashboardScreen> {
                 sliver: SliverToBoxAdapter(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     _summaryCards(p),
-                    if (Session.isAdminOrManager) ...[
+                    if (!AppInfo.pharmacyMode && Session.isAdminOrManager) ...[
                       const SizedBox(height: 12),
                       _amanatTile(p),
                     ],
@@ -530,6 +531,7 @@ class _PartyDashboardScreenState extends State<PartyDashboardScreen> {
           child: Text(Loc.t('Dashboard', 'ڈیش بورڈ'),
               style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.bold)),
         ),
+        if (!AppInfo.pharmacyMode)
         IconButton(
           tooltip: Loc.t('Deposit / Loan', 'امانت / قرض'),
           icon: const Icon(Icons.savings_outlined, color: Colors.white),

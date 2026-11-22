@@ -16,3 +16,11 @@ DB schema v38 -> **v39** (`_onUpgrade`: sirf ADD COLUMN, purana data mehfooz). M
 - Sync: products + purchase items ke naye fields push/pull (purane device ka doc local value nahi mitata).
 
 Batch stock FIFO andaza hai (purani dawai pehle bikti hai) — `lib/utils/medical_expiry.dart`.
+
+## Controlled drugs (℞) register — DB v40
+- Product form: "℞ Controlled / parchi wali dawai" switch (`products.controlled`, sync field `controlled`).
+- Sale / Quick Sale: bill mein controlled dawai ho to save se pehle Patient*, Doctor*, phone, Parchi No. (`rx_records`, invoice par).
+  Cancel = bill save nahi. Credit-limit retry par dobara nahi poochta. Bill edit par purana record pehle se bhara.
+- Sync: record sale doc ke `rx` field mein (alag collection / rules ki zaroorat nahi).
+- Dashboard "Rx Register" (admin/manager) + Reports "℞ Controlled Drugs Register": Aaj / 7 / 30 din / Sab, search, Share.
+- Sale/Purchase dropdown aur Formula search mein "℞ Parchi" nishan.

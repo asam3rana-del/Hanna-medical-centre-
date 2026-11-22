@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../app_info.dart';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -683,9 +684,9 @@ class _PartyScreenState extends State<PartyScreen> with WidgetsBindingObserver {
           partyId: c.id,
           onCall: () => _callCustomer(
               c, partyClosing(opening: c.openingBalance, running: _customerBalances[c.id] ?? 0.0, stuck: c.stuckBalance)),
-          onRabta: () => _showRabta(
+          onRabta: AppInfo.pharmacyMode ? null : () => _showRabta(
               c, partyClosing(opening: c.openingBalance, running: _customerBalances[c.id] ?? 0.0, stuck: c.stuckBalance)),
-          onQist: c.id == null
+          onQist: AppInfo.pharmacyMode || c.id == null
               ? null
               : () => showQistSheet(context,
                   customerId: c.id!,

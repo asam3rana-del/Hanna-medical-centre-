@@ -52,6 +52,9 @@ class Product {
   final String company;
   final String rackLocation;
 
+  /// Hanna Pharmacy POS (DB v40): Controlled / parchi wali dawai — sale par patient + doctor + parchi poocha jata hai.
+  final bool controlled;
+
   const Product({
     required this.barcode,
     required this.name,
@@ -84,12 +87,14 @@ class Product {
     this.genericName = '',
     this.company = '',
     this.rackLocation = '',
+    this.controlled = false,
   });
 
   Product copyWith({
     String? genericName,
     String? company,
     String? rackLocation,
+    bool? controlled,
     String? searchTag,
     int? defaultUnitIndex,
     int? quickSaleDefaultUnitIndex,
@@ -151,6 +156,7 @@ class Product {
         genericName: genericName ?? this.genericName,
         company: company ?? this.company,
         rackLocation: rackLocation ?? this.rackLocation,
+        controlled: controlled ?? this.controlled,
     );
   }
 
@@ -186,6 +192,7 @@ class Product {
         'genericName': genericName,
         'company': company,
         'rackLocation': rackLocation,
+        'controlled': controlled ? 1 : 0,
       };
 
   factory Product.fromMap(Map<String, Object?> m) => Product(
@@ -220,6 +227,7 @@ class Product {
         genericName: (m['genericName'] as String?) ?? '',
         company: (m['company'] as String?) ?? '',
         rackLocation: (m['rackLocation'] as String?) ?? '',
+        controlled: (m['controlled'] as num?)?.toInt() == 1,
       );
 }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../app_info.dart';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -566,7 +567,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> with WidgetsBindingObse
       MapEntry(_lotCtrl, _lotFocus),
       MapEntry(_retailCtrl, _retailFocus),
       MapEntry(_wholesaleCtrl, _wholesaleFocus),
-      MapEntry(_shopkeeperCtrl, _shopkeeperFocus),
+      if (!AppInfo.pharmacyMode) MapEntry(_shopkeeperCtrl, _shopkeeperFocus),
       MapEntry(_batchCtrl, _batchFocus),
       MapEntry(_expiryCtrl, _expiryFocus),
     ];
@@ -2337,8 +2338,8 @@ class _PurchaseScreenState extends State<PurchaseScreen> with WidgetsBindingObse
             ],
           ),
           if (MediaQuery.of(context).size.width < 600)
-            Padding(padding: const EdgeInsets.only(top: 12), child: _shopkeeperField()),
-          _shopkeeperWarning(),
+            if (!AppInfo.pharmacyMode) Padding(padding: const EdgeInsets.only(top: 12), child: _shopkeeperField()),
+          if (!AppInfo.pharmacyMode) _shopkeeperWarning(),
           _batchExpiryRow(),
           Padding(
             padding: const EdgeInsets.fromLTRB(6, 14, 0, 10),

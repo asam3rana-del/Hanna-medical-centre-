@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../app_info.dart';
 
 import '../db/app_database.dart';
 import '../db/user_repository.dart';
@@ -402,7 +403,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       const SizedBox(width: 8),
       Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
     ]);
-    if (collapsible) {
+    // Hanna Pharmacy POS: har card band rehta hai, title par tap se khulta hai (Settings chhoti aur saaf).
+    if (collapsible || AppInfo.pharmacyMode) {
       return Card(
         margin: const EdgeInsets.only(bottom: 14),
         clipBehavior: Clip.antiAlias,
@@ -482,10 +484,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (Permissions.can('cash_register'))
         row(Icons.account_balance_outlined, 'Cash & Bank', 'کیش اور بینک',
             const PermissionGuard(permission: 'cash_register', child: CashScreen()), color: p.navyInk),
-      if (Permissions.can('zakat'))
+      if (!AppInfo.pharmacyMode && Permissions.can('zakat'))
         row(Icons.volunteer_activism_outlined, 'Zakat', 'زکوٰۃ',
             const PermissionGuard(permission: 'zakat', child: ZakatScreen()), color: p.navyInk),
-      if (Permissions.can('shell_ledger'))
+      if (!AppInfo.pharmacyMode && Permissions.can('shell_ledger'))
         row(Icons.inventory_2_outlined, 'Shell Ledger', 'شیل لیجر',
             const PermissionGuard(permission: 'shell_ledger', child: ShellLedgerScreen()), color: p.navyInk),
     ];
@@ -574,6 +576,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               subtitle: Text(Loc.t('Needs Cloud Sync Setup; staff phone in Manage Users', 'Cloud Sync Setup ضروری؛ اسٹاف کا فون Manage Users میں')),
             ),
           ], collapsible: true),
+        // Pharmacy: technical / credit-limit wale cards nazar nahi aate (setting jo pehle thi wahi chalti hai).
+        if (!AppInfo.pharmacyMode)
         _card(Loc.t('Secure Cloud Login (staff)', 'سیکیور کلاؤڈ لاگ اِن (اسٹاف)'), Icons.verified_user, [
           FutureBuilder<bool>(
             future: StaffAuth.isEnabled(),
@@ -592,6 +596,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
         ]),
+        if (!AppInfo.pharmacyMode)
         _card(Loc.t('Credit limit override', 'کریڈٹ لیمٹ اجازت'), Icons.lock, [
           FutureBuilder<bool>(
             future: CreditOverridePolicy.managersOnly(),
@@ -610,6 +615,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
         ]),
+        if (!AppInfo.pharmacyMode)
         _card(Loc.t('Server credit-limit check', 'سرور کریڈٹ لیمٹ چیک'), Icons.shield, [
           FutureBuilder<bool>(
             future: const CreditGuard().isEnabled(),

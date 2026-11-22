@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../app_info.dart';
 import 'package:intl/intl.dart' show DateFormat;
 
 import '../db/category_unit_repository.dart';
@@ -35,6 +36,7 @@ class _ProductScreenState extends State<ProductScreen> {
   final _genericCtrl = TextEditingController();
   final _companyCtrl = TextEditingController();
   final _rackCtrl = TextEditingController();
+  bool _controlled = false; // ℞ parchi wali / controlled dawai
   final _costCtrl = TextEditingController();
   final _wholesaleCtrl = TextEditingController();
   final _shopkeeperCtrl = TextEditingController();
@@ -196,6 +198,7 @@ class _ProductScreenState extends State<ProductScreen> {
       _genericCtrl.text = p.genericName;
       _companyCtrl.text = p.company;
       _rackCtrl.text = p.rackLocation;
+      _controlled = p.controlled;
       _primaryUnit = p.unit.isEmpty ? 'pcs' : p.unit;
       _secondaryUnit = p.secondaryUnit.isEmpty ? 'None' : p.secondaryUnit;
       _secondaryQty = p.secondaryUnitQty;
@@ -273,6 +276,7 @@ class _ProductScreenState extends State<ProductScreen> {
       _genericCtrl.clear();
       _companyCtrl.clear();
       _rackCtrl.clear();
+      _controlled = false;
       _costCtrl.clear();
       _wholesaleCtrl.clear();
       _shopkeeperCtrl.clear();
@@ -408,6 +412,7 @@ class _ProductScreenState extends State<ProductScreen> {
       genericName: _genericCtrl.text.trim(),
       company: _companyCtrl.text.trim(),
       rackLocation: _rackCtrl.text.trim(),
+      controlled: _controlled,
       cost: costVal,
       salePrice: saleVal,
       wholesalePrice: wholesaleVal,
@@ -774,6 +779,16 @@ class _ProductScreenState extends State<ProductScreen> {
               Expanded(child: _medField(_rackCtrl, 'Rack / Shelf (e.g. A3)')),
             ],
           ),
+          // Controlled / parchi wali dawai: sale par patient, doctor aur parchi number zaroori.
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            value: _controlled,
+            onChanged: (v) => setState(() => _controlled = v),
+            title: const Text('℞ Controlled / parchi wali dawai'),
+            subtitle: Text('Sale par patient, doctor aur parchi number likhna zaroori',
+                style: TextStyle(fontSize: 12, color: ThemeManager.palette.textMuted)),
+          ),
         ],
       ),
     );
@@ -880,8 +895,10 @@ class _ProductScreenState extends State<ProductScreen> {
               const SizedBox(height: 12),
               PremiumLabeledField(emoji: '📦', label: Loc.t('Wholesale Sale Rate', 'تھوک فروخت کی قیمت'), accent: ThemeManager.palette.blue, controller: _wholesaleCtrl),
               const SizedBox(height: 12),
-              PremiumLabeledField(emoji: '🤝', label: Loc.t('Shopkeeper Rate (lowest margin, optional)', 'دکاندار قیمت (کم ترین مارجن، اختیاری)'), accent: ThemeManager.palette.blue, controller: _shopkeeperCtrl),
-              const SizedBox(height: 12),
+              if (!AppInfo.pharmacyMode) ...[
+                PremiumLabeledField(emoji: '🤝', label: Loc.t('Shopkeeper Rate (lowest margin, optional)', 'دکاندار قیمت (کم ترین مارجن، اختیاری)'), accent: ThemeManager.palette.blue, controller: _shopkeeperCtrl),
+                const SizedBox(height: 12),
+              ],
               PremiumLabeledField(emoji: '🏪', label: Loc.t('Retail Sale Rate', 'پرچون فروخت کی قیمت'), accent: ThemeManager.palette.teal, controller: _saleCtrl),
               const SizedBox(height: 12),
               PremiumLabeledField(emoji: '🧺', label: Loc.t('Bulk Rate (retail, optional)', 'بلک قیمت (پرچون، اختیاری)'), accent: ThemeManager.palette.blue, controller: _bulkPriceCtrl),

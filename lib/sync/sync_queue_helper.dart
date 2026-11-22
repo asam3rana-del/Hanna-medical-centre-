@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:sqflite/sqflite.dart';
 
+import '../db/rx_repository.dart' show rxSyncFor;
 import 'branch_config_store.dart';
 import 'device_tag.dart';
 
@@ -230,6 +231,7 @@ class SyncQueueHelper {
         if (p.containsKey('genericName')) 'genericName': p['genericName'] ?? '',
         if (p.containsKey('company')) 'company': p['company'] ?? '',
         if (p.containsKey('rackLocation')) 'rackLocation': p['rackLocation'] ?? '',
+        if (p.containsKey('controlled')) 'controlled': p['controlled'] ?? 0,
         // "stock" / "openingStock" jaan boojh kar nahi — sirf increment_stock se.
       });
 
@@ -627,8 +629,11 @@ class SyncQueueHelper {
       final stored = sale['customerServerId'];
       if (stored is String && stored.trim().isNotEmpty) custSid = stored;
     }
-    await enqueue(ex, 'sale', saleEntityId(invoice), 'upsert',
-        salePayload(sale, [for (final i in items) Map<String, Object?>.from(i)], custSid));
+    final payload = salePayload(sale, [for (final i in items) Map<String, Object?>.from(i)], custSid);
+    // Hanna Pharmacy POS: parchi (Rx) record bill ke saath hi cloud par.
+    final rx = await rxSyncFor(ex, invoice);
+    if (rx != null) payload['rx'] = rx;
+    await enqueue(ex, 'sale', saleEntityId(invoice), 'upsert', payload);
   }
 
   static Future<void> enqueuePurchase(DatabaseExecutor ex, String billNo) async {

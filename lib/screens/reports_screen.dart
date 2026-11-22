@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../app_info.dart';
 
 import '../db/reports_repository.dart';
 import '../theme/theme_manager.dart';
@@ -6,6 +7,7 @@ import '../utils/loc.dart';
 import 'balance_sheet_screen.dart';
 import 'due_reminders_screen.dart';
 import 'medicine_screen.dart';
+import 'rx_register_screen.dart';
 import 'history_screen.dart';
 import 'inventory_insights_screen.dart';
 import 'monthly_screen.dart';
@@ -144,7 +146,10 @@ class _ReportsBodyState extends State<_ReportsBody> {
               _row(p, Loc.t('Returns Report', 'واپسی رپورٹ'),
                   Loc.t('Sale & purchase returns, item by item', 'سیل اور خریداری کی واپسیاں، آئٹم وار'), p.flatPinkFg,
                   () => _open(const ReturnsReportScreen())),
-            if (_can('daily_bills'))
+            _row(p, Loc.t('℞ Controlled Drugs Register', '℞ کنٹرولڈ ادویات رجسٹر'),
+                Loc.t('Patient, doctor & prescription for every controlled sale', 'ہر کنٹرولڈ سیل کا مریض، ڈاکٹر اور نسخہ'), p.flatPurpleFg,
+                () => _open(const RxRegisterScreen())),
+            if (!AppInfo.pharmacyMode && _can('daily_bills'))
               _row(p, Loc.t('Daily Bills', 'روزانہ بلز'),
                   Loc.t('Har customer ka din ka ek bill + balance', 'ہر کسٹمر کا دن کا ایک بل اور بیلنس'), p.flatTealFg,
                   () => _open(const DailyBillsScreen())),

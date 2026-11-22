@@ -5,6 +5,7 @@ import '../models/return_entry.dart';
 import '../services/demo_mode.dart';
 
 import 'return_undo_repository.dart';
+import 'rx_repository.dart';
 import 'stock_ledger.dart';
 
 /// Ports the Room schema from Database.kt table-for-table so data shape
@@ -21,7 +22,7 @@ class AppDatabase {
   static final AppDatabase instance = AppDatabase._();
 
   static const _dbName = 'ah_developer_kiryana_store.db';
-  static const _dbVersion = 39;
+  static const _dbVersion = 40;
 
   Database? _db;
 
@@ -118,7 +119,8 @@ class AppDatabase {
         quickSaleDefaultUnitIndex INTEGER NOT NULL DEFAULT -1,
         genericName TEXT NOT NULL DEFAULT '',
         company TEXT NOT NULL DEFAULT '',
-        rackLocation TEXT NOT NULL DEFAULT ''
+        rackLocation TEXT NOT NULL DEFAULT '',
+        controlled INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
@@ -365,6 +367,7 @@ class AppDatabase {
     // Seed defaults — mirrors the Kotlin app's first-run defaults.
     batch.execute(_recycleBinSql);
     batch.execute(ReturnUndoRepository.createSql);
+    batch.execute(RxRepository.createSql);
 
     batch.insert('categories', {'name': 'General'});
     batch.insert('units', {'name': 'pcs'});
@@ -606,6 +609,11 @@ class AppDatabase {
       await _addColumnIfMissing(db, 'products', 'rackLocation', "TEXT NOT NULL DEFAULT ''");
       await _addColumnIfMissing(db, 'purchase_items', 'batchNo', "TEXT NOT NULL DEFAULT ''");
       await _addColumnIfMissing(db, 'purchase_items', 'expiry', "TEXT NOT NULL DEFAULT ''");
+    }
+    if (oldVersion < 40) {
+      // v40 (Hanna Pharmacy POS): Controlled (Rx) dawai ka nishan + parchi (prescription) register.
+      await _addColumnIfMissing(db, 'products', 'controlled', 'INTEGER NOT NULL DEFAULT 0');
+      await db.execute(RxRepository.createSql);
     }
     // products.searchTag was added to _onCreate WITHOUT a migration step, so a database created by the
     // earliest builds (schema v1) never got the column. Found by the real-file migration test

@@ -209,6 +209,7 @@ class MedicalBatches {
 /// "Paracetamol · GSK · Rack A3" — khali hisse chhod deta hai.
 extension MedicalInfo on Product {
   String get medicalInfoLine => [
+        if (controlled) '℞ Parchi',
         if (genericName.trim().isNotEmpty) genericName.trim(),
         if (company.trim().isNotEmpty) company.trim(),
         if (rackLocation.trim().isNotEmpty) 'Rack ${rackLocation.trim()}',

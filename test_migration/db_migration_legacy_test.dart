@@ -41,6 +41,7 @@ void main() {
 
   // version -> what that migration step added (removed when rewinding to a version below it)
   final steps = <_Step>[
+    _Step(40, tables: ['rx_records'], columns: {'products': ['controlled']}),
     _Step(39, columns: {'products': ['genericName', 'company', 'rackLocation'], 'purchase_items': ['batchNo', 'expiry']}),
     _Step(38, tables: ['return_undo']),
     _Step(37, columns: {'customers': ['paySchedule', 'qistPlan']}),

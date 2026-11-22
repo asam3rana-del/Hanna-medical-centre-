@@ -3,6 +3,11 @@ class AppInfo {
   AppInfo._();
 
   static const appName = 'Hanna Pharmacy POS';
+
+  /// Hanna Pharmacy POS: kiryana-wale features (Shell Ledger, Shopkeeper rate, Amanat/Loan, Bulk Translate,
+  /// Daily Bills, Qist, Wasooli/Collection, Zakat, Cost repair tools) app mein nazar nahi aate. Code / DB / sync jaan boojh kar
+  /// barqarar (purana data mehfooz, tests same) — wapas chahiye to sirf ye false karein.
+  static const pharmacyMode = true;
   static const developer = 'Asam Hameed';
   static const business = 'Hanna Solutions';
   static const appId = 'com.hannasolutions.pos';

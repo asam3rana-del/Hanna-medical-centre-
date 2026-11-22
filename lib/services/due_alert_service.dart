@@ -1,4 +1,5 @@
 import 'dart:io' show Platform;
+import '../app_info.dart';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -120,6 +121,8 @@ class DueAlertService {
 
   /// Din mein notification dikhao (subah + zaroorat par shaam). true = dikhayi gayi.
   static Future<bool> checkAndNotify({DateTime? now, bool force = false}) async {
+    // Hanna Pharmacy POS: wasooli / amanat notifications band (feature app mein nazar nahi aata).
+    if (AppInfo.pharmacyMode) return false;
     if (!_supported) return false;
     try {
       final t = now ?? DateTime.now();

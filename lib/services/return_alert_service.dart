@@ -1,4 +1,5 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import '../app_info.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../db/due_reminders_repository.dart';
@@ -27,6 +28,8 @@ class ReturnAlertService {
 
   /// Notification dikhao (agar koi tarikh aa chuki ho). true = dikhayi gayi.
   static Future<bool> checkAndNotify({DateTime? now, bool force = false}) async {
+    // Hanna Pharmacy POS: wasooli / amanat notifications band (feature app mein nazar nahi aata).
+    if (AppInfo.pharmacyMode) return false;
     if (!DueAlertService.supported) return false;
     try {
       final t = now ?? DateTime.now();
