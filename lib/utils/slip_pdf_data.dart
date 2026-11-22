@@ -46,7 +46,8 @@ class SlipBlock {
 const String slipThanks = 'خریداری کا شکریہ';
 
 /// PDF ke neeche payment ki maloomat (Urdu + number).
-const String slipPayInfo = 'جاز کیش / راست: 03006296815';
+// Purana hardcoded number hata diya — ab slip par dukaan ki apni Payment details (Settings) chhapti hain.
+const String slipPayInfo = '';
 
 class SlipPdfData {
   final String shopName;

@@ -619,7 +619,13 @@ class _LoginScreenState extends State<LoginScreen> {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 440),
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  CircleAvatar(radius: 40, backgroundColor: Colors.white, child: Icon(Icons.lock, size: 36, color: ThemeManager.palette.navyInk)),
+                  // Hanna Pharmacy POS: lock ki jagah app ka logo (assets/images/logo.png = app icon).
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: Image.asset('assets/images/logo.png', width: 84, height: 84,
+                        errorBuilder: (_, __, ___) => CircleAvatar(
+                            radius: 40, backgroundColor: Colors.white, child: Icon(Icons.lock, size: 36, color: ThemeManager.palette.navyInk))),
+                  ),
                   const SizedBox(height: 16),
                   const Text('Hanna Pharmacy POS', style: TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),

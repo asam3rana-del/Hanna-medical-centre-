@@ -79,6 +79,8 @@ class _SaleScreenState extends State<SaleScreen> with WidgetsBindingObserver {
   final _paidFocus = FocusNode();
   final _priceCtrl = TextEditingController();
   final _discountCtrl = TextEditingController();
+  // Hanna Pharmacy POS: discount % (likha ho to Rs wale discount ki jagah yahi chalta hai).
+  final _discountPctCtrl = TextEditingController();
   final _paidCtrl = TextEditingController();
   /// Udhaar bill par payment ki date (din ki shuruaat, millis). 0 = set nahi.
   int _dueDateMillis = 0;
@@ -348,6 +350,7 @@ class _SaleScreenState extends State<SaleScreen> with WidgetsBindingObserver {
     _paidFocus.dispose();
     _priceCtrl.dispose();
     _discountCtrl.dispose();
+    _discountPctCtrl.dispose();
     _paidCtrl.dispose();
     super.dispose();
   }
@@ -366,7 +369,7 @@ class _SaleScreenState extends State<SaleScreen> with WidgetsBindingObserver {
         customer: _customerCtrl.text,
         isWholesale: _isWholesale,
         isShopkeeper: _isShopkeeper,
-        discount: _discountCtrl.text,
+        discount: _discountDraftText,
         paid: _paidCtrl.text,
         pendingItemName: _itemCtrl.text,
         pendingQty: _qtyCtrl.text,
@@ -404,7 +407,7 @@ class _SaleScreenState extends State<SaleScreen> with WidgetsBindingObserver {
         _customerCtrl.text = draft.customer;
         _isWholesale = draft.isWholesale;
         _isShopkeeper = draft.isShopkeeper;
-        if (draft.discount.isNotEmpty) _discountCtrl.text = draft.discount;
+        if (draft.discount.isNotEmpty) _restoreDiscountText(draft.discount);
         if (draft.paid.isNotEmpty) _paidCtrl.text = draft.paid;
         // The saved date is intentionally not restored (see SaleDraft) —
         // the bill is dated "now"; the date picker still allows another day.
@@ -491,9 +494,31 @@ class _SaleScreenState extends State<SaleScreen> with WidgetsBindingObserver {
 
   double get _subtotal => _lines.fold(0.0, (sum, l) => sum + l.amount);
 
+  /// Discount Rs mein: % likha ho to subtotal ka utna %, warna Rs wala field.
+  double get _discountInput {
+    final pct = double.tryParse(_discountPctCtrl.text.trim());
+    if (pct != null && pct > 0) return _subtotal * pct.clamp(0.0, 100.0) / 100.0;
+    return double.tryParse(_discountCtrl.text.trim()) ?? 0.0;
+  }
+
+  /// Draft / hold mein discount: % ho to "10%" ki shakal mein (wapas aane par % field mein).
+  String get _discountDraftText {
+    final pct = _discountPctCtrl.text.trim();
+    return pct.isNotEmpty ? '$pct%' : _discountCtrl.text;
+  }
+
+  void _restoreDiscountText(String t) {
+    final v = t.trim();
+    if (v.endsWith('%')) {
+      _discountPctCtrl.text = v.substring(0, v.length - 1).trim();
+    } else {
+      _discountCtrl.text = v;
+    }
+  }
+
   BillTotals get _totals => DiscountCalculator.compute(
         _subtotal,
-        double.tryParse(_discountCtrl.text.trim()) ?? 0.0,
+        _discountInput,
         effectivePaidInput(_splitPayments, double.tryParse(_paidCtrl.text.trim()) ?? 0.0),
       );
 
@@ -913,6 +938,7 @@ class _SaleScreenState extends State<SaleScreen> with WidgetsBindingObserver {
       _lines.clear();
       _customerCtrl.clear();
       _discountCtrl.clear();
+      _discountPctCtrl.clear();
       _paidCtrl.clear();
       _dueDateMillis = 0;
       _splitPayments = [];
@@ -1017,7 +1043,7 @@ class _SaleScreenState extends State<SaleScreen> with WidgetsBindingObserver {
       final invoice = await SaleRepository.instance.saveSale(
         lines: _lines,
         customerName: _customerCtrl.text.trim(),
-        discountInput: double.tryParse(_discountCtrl.text.trim()) ?? 0.0,
+        discountInput: _discountInput,
         paidInput: double.tryParse(_paidCtrl.text.trim()) ?? 0.0,
         saleType: rateModeName(_rateMode),
         saleDateMillis: _saleDate.millisecondsSinceEpoch,
@@ -1484,7 +1510,7 @@ class _SaleScreenState extends State<SaleScreen> with WidgetsBindingObserver {
       isWholesale: _isWholesale,
         isShopkeeper: _isShopkeeper,
       isCash: _customerCtrl.text.trim().isEmpty,
-      discountText: _discountCtrl.text.trim(),
+      discountText: _discountDraftText.trim(),
       lines: List.of(_lines),
     ));
     try {
@@ -1533,7 +1559,9 @@ class _SaleScreenState extends State<SaleScreen> with WidgetsBindingObserver {
       _customerCtrl.text = draft.customerName;
       _isWholesale = draft.isWholesale;
         _isShopkeeper = draft.isShopkeeper;
-      _discountCtrl.text = draft.discountText;
+      _discountPctCtrl.clear();
+      _discountCtrl.clear();
+      _restoreDiscountText(draft.discountText);
       _paidCtrl.clear();
       _splitPayments = [];
       _lines
@@ -2821,7 +2849,25 @@ class _SaleScreenState extends State<SaleScreen> with WidgetsBindingObserver {
             ],
           ),
           const SizedBox(height: 12),
-          PremiumLabeledField(emoji: '➖', label: 'Discount', accent: ThemeManager.palette.orange, controller: _discountCtrl, focusNode: _discountFocus, onSubmitted: () => _focus(_paidFocus), onChanged: (_) => setState(() {})),
+          // Discount: % ya Rs. % likhne par Rs wala band (aur khali) — items badlein to % khud naya hisaab lagata hai.
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(
+              flex: 2,
+              child: PremiumLabeledField(emoji: '%', label: 'Discount %', accent: ThemeManager.palette.orange, controller: _discountPctCtrl,
+                  onSubmitted: () => _focus(_paidFocus),
+                  onChanged: (v) => setState(() {
+                        if (v.trim().isNotEmpty) _discountCtrl.clear();
+                      })),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              flex: 3,
+              child: PremiumLabeledField(emoji: '➖', label: 'Discount Rs', accent: ThemeManager.palette.orange, controller: _discountCtrl, focusNode: _discountFocus,
+                  enabled: _discountPctCtrl.text.trim().isEmpty,
+                  hint: _discountPctCtrl.text.trim().isEmpty ? '0' : totals.discount.toStringAsFixed(0),
+                  onSubmitted: () => _focus(_paidFocus), onChanged: (_) => setState(() {})),
+            ),
+          ]),
           const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,

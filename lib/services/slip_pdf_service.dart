@@ -11,6 +11,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 
 import '../db/user_repository.dart';
+import 'payment_info.dart';
 import '../utils/pdf_urdu.dart';
 import '../utils/slip_pdf_data.dart';
 
@@ -27,6 +28,8 @@ class SlipPdfService {
   static pw.Font? _urduFont;
   static pw.MemoryImage? _logo;
   static String _owner = '';
+  // Dukaandaar ki apni payment maloomat (Settings → Shop Information → Payment details). Khali = kuch nahi chhapta.
+  static String _payInfo = '';
   static bool _logoTried = false;
 
   /// Dukaan ka logo (assets/images/logo.png) — header mein. Na mile to chupchap nahi lagta.
@@ -165,12 +168,16 @@ class SlipPdfService {
         if (d.meta.isNotEmpty) pw.Padding(padding: const pw.EdgeInsets.only(top: 8), child: pw.Column(children: [for (final k in d.meta) _kv(k)])),
         for (final b in d.blocks) ..._block(b),
         pw.SizedBox(height: 14),
-        if (!_noPayInfo.contains(d.title))
+        // Pehle yahan developer ka apna number hardcoded tha; ab har dukaan ka apna (Settings mein likha hua).
+        if (!_noPayInfo.contains(d.title) && _payInfo.isNotEmpty)
           pw.Container(
           margin: const pw.EdgeInsets.only(bottom: 8),
           padding: const pw.EdgeInsets.symmetric(vertical: 5),
           decoration: const pw.BoxDecoration(border: pw.Border.symmetric(horizontal: pw.BorderSide(color: _teal, width: 0.8))),
-          child: pw.Center(child: _text(slipPayInfo, size: 12, bold: true, argb: 0xFF0F9B8E)),
+          child: pw.Column(children: [
+            for (final line in _payInfo.split('\n'))
+              if (line.trim().isNotEmpty) pw.Center(child: _text(line.trim(), size: 12, bold: true, argb: 0xFF0F9B8E)),
+          ]),
         ),
         if (d.footer.isNotEmpty) pw.Center(child: _text(d.footer, size: 11, bold: true, argb: 0xFF8A90A6)),
       ];
@@ -198,8 +205,10 @@ class SlipPdfService {
     await _loadLogo();
     try {
       _owner = (await UserRepository.instance.getSetting('shop_owner'))?.trim() ?? '';
+      _payInfo = await PaymentInfo.load();
     } catch (_) {
       _owner = '';
+      _payInfo = '';
     }
     final doc = pw.Document(
       theme: pw.ThemeData.withFont(
