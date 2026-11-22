@@ -159,7 +159,11 @@ void main() {
       await repo.insert(const models.UnitType('carton'));
       await repo.insert(const models.UnitType('Kg'));
       final names = (await repo.listAll()).map((u) => u.name).toList();
-      expect(names, ['carton', 'Kg', 'pcs']);
+      // Hanna Pharmacy POS: naye install par dawai ki units (tablet, strip, ...) bhi seed hoti hain.
+      expect(names, containsAll(['carton', 'Kg', 'pcs', 'tablet', 'strip']));
+      expect(names.where((n) => n == 'Kg').length, 1); // duplicate ignore
+      final sorted = [...names]..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      expect(names, sorted);
     });
   });
 }
