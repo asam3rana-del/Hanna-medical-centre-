@@ -132,6 +132,14 @@ jobs:
           sed -i '' -E 's/PRODUCT_BUNDLE_IDENTIFIER = com\.example\.[A-Za-z0-9_]+/PRODUCT_BUNDLE_IDENTIFIER = com.hannasolutions.medical/g' ios/Runner.xcodeproj/project.pbxproj
           grep -m3 "PRODUCT_BUNDLE_IDENTIFIER" ios/Runner.xcodeproj/project.pbxproj
           ! grep -q "PRODUCT_BUNDLE_IDENTIFIER = com.example" ios/Runner.xcodeproj/project.pbxproj || { echo "::error::iOS bundle id nahi badla"; exit 1; }
+          # App icon: assets/branding/icon_1024.png se AppIcon set ki har file usi ke size par (sips, macOS).
+          if [ -f assets/branding/icon_1024.png ]; then
+            for f in ios/Runner/Assets.xcassets/AppIcon.appiconset/*.png; do
+              w=$(sips -g pixelWidth "$f" | awk '/pixelWidth/{print $2}')
+              sips -z "$w" "$w" assets/branding/icon_1024.png --out "$f" >/dev/null
+            done
+            echo "iOS app icon applied"
+          fi
 
       # iOS privacy strings: inke baghair camera (Bill Scan), gallery, contacts (party phone), Face ID
       # (fingerprint login) ya Bluetooth printer kholte hi iOS app ko foran band (crash) kar deta hai,
